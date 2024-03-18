@@ -1,16 +1,22 @@
 use std::env::var;
 
-use chrono::{serde::ts_milliseconds, DateTime, Utc};
 use log::{debug, error};
-use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS};
-use serde::Serialize;
+use rumqttc::{AsyncClient, MqttOptions};
 use tokio::{
     spawn,
-    sync::mpsc::{channel, Receiver},
+    sync::mpsc::channel,
     task::JoinSet,
-    time::{interval, Duration},
+    time::{interval, Duration, Instant},
 };
 use tracing_subscriber::EnvFilter;
+
+mod data;
+mod mqtt;
+mod serializer;
+
+use data::{Data, Gps, PayloadArray};
+use mqtt::Mqtt;
+use serializer::Serializer;
 
 #[tokio::main]
 async fn main() {
@@ -21,7 +27,7 @@ async fn main() {
         .expect("initialized subscriber succesfully");
 
     let mut tasks: JoinSet<()> = JoinSet::new();
-    for i in 0..1000 {
+    for i in 0..500 {
         tasks.spawn(async move { single_device(i).await });
     }
 
@@ -42,67 +48,27 @@ async fn single_device(client_id: u32) {
     spawn(async move { Mqtt { eventloop }.start().await });
 
     let mut sequence = 0;
+    let mut total_time = 0.0;
     let mut clock = interval(Duration::from_millis(100));
     loop {
         clock.tick().await;
-        let mut data = vec![];
-        for i in 0..10 {
+        let start = Instant::now();
+        let mut gps_array = PayloadArray {
+            topic: format!("/tenants/demo/devices/{client_id}/events/data/jsonarray"),
+            points: vec![],
+        };
+        for _ in 0..10 {
             sequence %= u32::MAX;
             sequence += 1;
-            data.push(Payload {
-                sequence,
-                timestamp: Utc::now(),
-                data: i,
-            });
+            gps_array.points.push(Gps::new(sequence, 0.0, 0.0));
         }
-        if let Err(e) = tx
-            .send((
-                format!("/tenants/demo/devices/{client_id}/events/data/jsonarray"),
-                data,
-            ))
-            .await
-        {
+        if let Err(e) = tx.send(gps_array).await {
             error!("{e}");
         }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct Payload {
-    sequence: u32,
-    #[serde(with = "ts_milliseconds")]
-    timestamp: DateTime<Utc>,
-    data: u32,
-}
-
-struct Serializer {
-    rx: Receiver<(String, Vec<Payload>)>,
-    client: AsyncClient,
-}
-
-impl Serializer {
-    async fn start(&mut self) {
-        while let Some((topic, data)) = self.rx.recv().await {
-            let data = serde_json::to_vec(&data).unwrap();
-            if let Err(e) = self
-                .client
-                .publish(topic, QoS::AtLeastOnce, false, data)
-                .await
-            {
-                error!("{e}");
-            }
-        }
-    }
-}
-
-struct Mqtt {
-    eventloop: EventLoop,
-}
-
-impl Mqtt {
-    async fn start(&mut self) {
-        loop {
-            debug!("{:?}", self.eventloop.poll().await);
-        }
+        total_time += start.elapsed().as_secs_f64();
+        debug!(
+            "Messages: {sequence}; Avg time: {}",
+            total_time / sequence as f64
+        );
     }
 }
