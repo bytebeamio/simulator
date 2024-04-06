@@ -1,6 +1,7 @@
-use std::env::var;
+use std::{env::var, fs::read_to_string};
 
 use log::{debug, error};
+use rand::{random, Rng};
 use rumqttc::{AsyncClient, MqttOptions};
 use tokio::{
     sync::mpsc::{channel, Sender},
@@ -41,8 +42,63 @@ async fn main() {
     }
 }
 
+struct GpsTrack {
+    map: Vec<Gps>,
+    trace_i: usize,
+}
+
+impl GpsTrack {
+    fn new(mut trace_list: Vec<Gps>) -> Self {
+        let mut traces = trace_list.iter();
+        let Some(last) = traces.next() else {
+            panic!("Not enough traces!");
+        };
+
+        let mut map = vec![last.clone()];
+        for trace in traces {
+            map.push(trace.clone());
+        }
+        trace_list.reverse();
+        let mut traces = trace_list.iter();
+        let Some(_) = traces.next() else {
+            panic!("Not enough traces!");
+        };
+        for trace in traces {
+            map.push(trace.clone());
+        }
+
+        Self { map, trace_i: 0 }
+    }
+
+    fn next(&mut self) -> Gps {
+        // push trace 0 only for first set of point
+        if self.trace_i == 0 {
+            self.trace_i += 1;
+            return self.map[0].clone();
+        }
+        loop {
+            let trace_i = self.trace_i;
+            self.trace_i = trace_i % self.map.len();
+            return self.map[trace_i].clone();
+        }
+    }
+}
+
 // const GPS_RATE: usize = 1; // messages/sec i.e. 60 messages in ~60s
 async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
+    let trace_list = {
+        let paths_dir = var("GPS_PATH").expect("Missing env variable");
+        let i = rand::thread_rng().gen_range(0..10);
+        let file_name: String = format!("{}/path{}.json", paths_dir, i);
+
+        let contents = read_to_string(file_name).expect("Oops, failed ot read path");
+
+        let parsed: Vec<Gps> = serde_json::from_str(&contents).unwrap();
+
+        parsed
+    };
+    let mut path = GpsTrack::new(trace_list);
+
     let mut sequence = 0;
     let mut total_time = 0.0;
     let mut clock = interval(Duration::from_secs(60));
@@ -56,7 +112,7 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
         for _ in 0..60 {
             sequence %= u32::MAX;
             sequence += 1;
-            gps_array.points.push(Gps::new(sequence, 0.0, 0.0));
+            gps_array.points.push(path.next().payload(sequence));
         }
         if let Err(e) = tx.send(gps_array).await {
             error!("{e}");
@@ -84,9 +140,18 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
         for _ in 0..100 {
             sequence %= u32::MAX;
             sequence += 1;
-            gps_array
-                .points
-                .push(Can::new(sequence, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+            gps_array.points.push(Can::new(
+                sequence,
+                random(),
+                random(),
+                random(),
+                random(),
+                random(),
+                random(),
+                random(),
+                random(),
+                random(),
+            ));
         }
         if let Err(e) = tx.send(gps_array).await {
             error!("{e}");

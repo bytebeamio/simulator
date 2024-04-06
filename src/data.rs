@@ -1,5 +1,5 @@
 use chrono::{serde::ts_milliseconds, DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub trait Data {
@@ -31,16 +31,18 @@ impl Data for PayloadArray {
     }
 }
 
-pub struct Gps;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Gps {
+    longitude: f64,
+    latitude: f64,
+}
+
 impl Gps {
-    pub fn new(sequence: u32, longitude: f64, latitude: f64) -> Payload {
+    pub fn payload(&self, sequence: u32) -> Payload {
         Payload {
             sequence,
             timestamp: Utc::now(),
-            payload: json!({
-                "longitude": longitude,
-                "latitude": latitude,
-            }),
+            payload: json!(self),
         }
     }
 }
