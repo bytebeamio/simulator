@@ -7,23 +7,23 @@ pub struct Mqtt {
 }
 
 impl Mqtt {
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self, client_id: u32) {
         let mut success = 0;
         let mut failure = 0;
         loop {
             let start = Instant::now();
             match self.eventloop.poll().await {
                 Ok(m) => {
-                    debug!("{m:?}");
+                    debug!("client_id: {client_id}; {m:?}");
                     success += 1;
                 }
                 Err(e) => {
-                    error!("{e}");
+                    error!("client_id: {client_id}; {e}");
                     failure += 1;
                 }
             };
             debug!(
-                "timespent: {}; success = {success}; failure = {failure}",
+                "client_id: {client_id}; timespent: {}; success = {success}; failure = {failure}",
                 start.elapsed().as_secs_f64()
             );
         }
