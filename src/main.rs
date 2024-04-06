@@ -1,8 +1,14 @@
-use std::{env::var, fs::read_to_string};
+use std::{
+    env::{current_dir, var},
+    fs::{read_to_string, File},
+    io::BufReader,
+    sync::Arc,
+};
 
 use log::{debug, error};
 use rand::{random, Rng};
 use rumqttc::{AsyncClient, MqttOptions};
+use serde::Deserialize;
 use tokio::{
     sync::mpsc::{channel, Sender},
     task::JoinSet,
@@ -20,7 +26,20 @@ use serializer::Serializer;
 
 use crate::data::Can;
 
-const DEVICE_COUNT: u32 = 500;
+#[derive(Debug, Deserialize)]
+struct Auth {
+    ca_certificate: String,
+    device_certificate: String,
+    device_private_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    project_id: String,
+    broker: String,
+    port: u16,
+    authentication: Auth,
+}
 
 #[tokio::main]
 async fn main() {
@@ -29,10 +48,27 @@ async fn main() {
         .with_env_filter(EnvFilter::from_env("RUST_LOG"))
         .try_init()
         .expect("initialized subscriber succesfully");
+    let path = var("CONFIG_FILE").expect("Missing env variable");
+    let rdr = BufReader::new(File::open(path).unwrap());
+    let config: Config = serde_json::from_reader(rdr).unwrap();
+    if config.project_id != "demo" {
+        panic!("Non-demo tenant: {}", config.project_id);
+    }
+    let config = Arc::new(config);
+
+    let start_id = var("START")
+        .expect("Missing env variable 'START'")
+        .parse()
+        .unwrap();
+    let end_id = var("END")
+        .expect("Missing env variable 'END'")
+        .parse()
+        .unwrap();
 
     let mut tasks: JoinSet<()> = JoinSet::new();
-    for i in 0..DEVICE_COUNT {
-        tasks.spawn(async move { single_device(i).await });
+    for i in start_id..=end_id {
+        let config = config.clone();
+        tasks.spawn(async move { single_device(i, config).await });
     }
 
     loop {
@@ -87,11 +123,13 @@ impl GpsTrack {
 // const GPS_RATE: usize = 1; // messages/sec i.e. 60 messages in ~60s
 async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
     let trace_list = {
-        let paths_dir = var("GPS_PATH").expect("Missing env variable");
+        let mut gps_path = current_dir().unwrap();
+        gps_path.push("paths");
         let i = rand::thread_rng().gen_range(0..10);
-        let file_name: String = format!("{}/path{}.json", paths_dir, i);
+        let file_name: String = format!("path{}.json", i);
+        gps_path.push(file_name);
 
-        let contents = read_to_string(file_name).expect("Oops, failed ot read path");
+        let contents = read_to_string(gps_path).expect("Oops, failed to read path");
 
         let parsed: Vec<Gps> = serde_json::from_str(&contents).unwrap();
 
@@ -164,11 +202,19 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
     }
 }
 
-async fn single_device(client_id: u32) {
+async fn single_device(client_id: u32, config: Arc<Config>) {
     let (tx, rx) = channel(1);
-    let broker = var("BROKER").expect("Missing env variable");
-    let port = var("PORT").expect("Missing env variable").parse().unwrap();
-    let mut opt = MqttOptions::new(client_id.to_string(), broker, port);
+    let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
+    opt.set_transport(rumqttc::Transport::tls_with_config(
+        rumqttc::TlsConfiguration::Simple {
+            ca: config.authentication.ca_certificate.as_bytes().to_vec(),
+            alpn: None,
+            client_auth: Some((
+                config.authentication.device_certificate.as_bytes().to_vec(),
+                config.authentication.device_private_key.as_bytes().to_vec(),
+            )),
+        },
+    ));
     opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
     let (client, mut eventloop) = AsyncClient::new(opt, 1);
     eventloop.network_options.set_connection_timeout(30);
