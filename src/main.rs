@@ -105,7 +105,8 @@ async fn single_device(client_id: u32) {
     let port = var("PORT").expect("Missing env variable").parse().unwrap();
     let mut opt = MqttOptions::new(client_id.to_string(), broker, port);
     opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
-    let (client, eventloop) = AsyncClient::new(opt, 1);
+    let (client, mut eventloop) = AsyncClient::new(opt, 1);
+    eventloop.network_options.set_connection_timeout(30);
 
     let mut handle = JoinSet::new();
     handle.spawn(async move { Serializer { rx, client }.start(client_id).await });
