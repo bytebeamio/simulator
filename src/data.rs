@@ -38,11 +38,16 @@ pub struct Gps {
 }
 
 impl Gps {
-    pub fn payload(&self, sequence: u32) -> Payload {
+    pub fn new(&self, sequence: u32, bearing_angle: f64, gps_distance: f64) -> Payload {
         Payload {
             sequence,
             timestamp: Utc::now(),
-            payload: json!(self),
+            payload: json!({
+                "longitude": self.longitude,
+                "latitude": self.latitude,
+                "bearing_angle": bearing_angle,
+                "gps_distance": gps_distance,
+            }),
         }
     }
 }
@@ -60,6 +65,7 @@ impl Can {
         byte6: u8,
         byte7: u8,
         byte8: u8,
+        dbc_ver: u16,
     ) -> Payload {
         Payload {
             sequence,
@@ -74,6 +80,39 @@ impl Can {
                 "byte6": byte6,
                 "byte7": byte7,
                 "byte8": byte8,
+                "dbc_ver": dbc_ver,
+            }),
+        }
+    }
+}
+
+pub struct Imu;
+impl Imu {
+    pub fn new(
+        sequence: u32,
+        ax: f32,
+        ay: f32,
+        az: f32,
+        gx: f32,
+        gy: f32,
+        gz: f32,
+        mx: f32,
+        my: f32,
+        mz: f32,
+    ) -> Payload {
+        Payload {
+            sequence,
+            timestamp: Utc::now(),
+            payload: json!({
+                "ax": ax,
+                "ay": ay,
+                "az": az,
+                "gx": gx,
+                "gy": gy,
+                "gz": gz,
+                "mx": mx,
+                "my": my,
+                "mz": mz,
             }),
         }
     }

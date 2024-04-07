@@ -6,7 +6,7 @@ use std::{
 };
 
 use log::{debug, error};
-use rand::{random, Rng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use rumqttc::{AsyncClient, MqttOptions};
 use serde::Deserialize;
 use tokio::{
@@ -24,7 +24,7 @@ use data::{Data, Gps, PayloadArray};
 use mqtt::Mqtt;
 use serializer::Serializer;
 
-use crate::data::Can;
+use crate::data::{Can, Imu};
 
 #[derive(Debug, Deserialize)]
 struct Auth {
@@ -140,17 +140,20 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
     let mut sequence = 0;
     let mut total_time = 0.0;
     let mut clock = interval(Duration::from_secs(60));
+    let mut rng = StdRng::from_entropy();
     loop {
         clock.tick().await;
         let start = Instant::now();
         let mut gps_array = PayloadArray {
-            topic: format!("/tenants/demo/devices/{client_id}/events/gps/jsonarray"),
+            topic: format!("/tenants/demo/devices/{client_id}/events/vehicle_location/jsonarray"),
             points: vec![],
         };
         for _ in 0..60 {
             sequence %= u32::MAX;
             sequence += 1;
-            gps_array.points.push(path.next().payload(sequence));
+            gps_array
+                .points
+                .push(path.next().new(sequence, rng.gen(), rng.gen()));
         }
         if let Err(e) = tx.send(gps_array).await {
             error!("{e}");
@@ -168,6 +171,7 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
     let mut sequence = 0;
     let mut total_time = 0.0;
     let mut clock = interval(Duration::from_millis(140));
+    let mut rng = StdRng::from_entropy();
     loop {
         clock.tick().await;
         let start = Instant::now();
@@ -180,15 +184,56 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
             sequence += 1;
             gps_array.points.push(Can::new(
                 sequence,
-                random(),
-                random(),
-                random(),
-                random(),
-                random(),
-                random(),
-                random(),
-                random(),
-                random(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen_range(0..4),
+            ));
+        }
+        if let Err(e) = tx.send(gps_array).await {
+            error!("{e}");
+        }
+        total_time += start.elapsed().as_secs_f64();
+        debug!(
+            "client_id: {client_id}; Messages: {sequence}; Avg time: {}",
+            total_time / sequence as f64
+        );
+    }
+}
+
+// const CAN_RATE: usize = 10; // messages/sec i.e. 100 messages in ~140ms
+async fn push_imu(tx: Sender<PayloadArray>, client_id: u32) {
+    let mut sequence = 0;
+    let mut total_time = 0.0;
+    let mut clock = interval(Duration::from_millis(140));
+    let mut rng = StdRng::from_entropy();
+    loop {
+        clock.tick().await;
+        let start = Instant::now();
+        let mut gps_array = PayloadArray {
+            topic: format!("/tenants/demo/devices/{client_id}/events/imu_sensor/jsonarray"),
+            points: vec![],
+        };
+        for _ in 0..100 {
+            sequence %= u32::MAX;
+            sequence += 1;
+            gps_array.points.push(Imu::new(
+                sequence,
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
+                rng.gen(),
             ));
         }
         if let Err(e) = tx.send(gps_array).await {
@@ -224,6 +269,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
     handle.spawn(async move { Mqtt { eventloop }.start(client_id).await });
     handle.spawn(push_gps(tx.clone(), client_id));
     handle.spawn(push_can(tx.clone(), client_id));
+    handle.spawn(push_imu(tx.clone(), client_id));
 
     while let Some(o) = handle.join_next().await {
         if let Err(e) = o {
