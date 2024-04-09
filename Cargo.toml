@@ -6,8 +6,9 @@ edition = "2021"
 [dependencies]
 chrono = { version = "0.4.35", features = ["serde"] }
 log = "0.4.21"
+lz4_flex = "0.10"
 rand = "0.8.5"
-rumqttc = "0.24.0"
+rumqttc = { git = "https://github.com/bytebeamio/rumqtt" }
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.114"
 tokio = { version = "1.36.0", features = ["full"] }

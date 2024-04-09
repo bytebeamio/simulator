@@ -1,4 +1,7 @@
+use std::io::Write;
+
 use chrono::{serde::ts_milliseconds, DateTime, Utc};
+use lz4_flex::frame::FrameEncoder;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -19,6 +22,7 @@ pub struct Payload {
 pub struct PayloadArray {
     pub topic: String,
     pub points: Vec<Payload>,
+    pub compression: bool,
 }
 
 impl Data for PayloadArray {
@@ -27,7 +31,14 @@ impl Data for PayloadArray {
     }
 
     fn serialized(&self) -> Vec<u8> {
-        serde_json::to_vec(&self.points).unwrap()
+        let serialized = serde_json::to_vec(&self.points).unwrap();
+        if self.compression {
+            let mut compressor = FrameEncoder::new(vec![]);
+            compressor.write_all(&serialized).unwrap();
+            return compressor.finish().unwrap();
+        }
+
+        serialized
     }
 }
 

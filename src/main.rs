@@ -147,6 +147,7 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
         let mut gps_array = PayloadArray {
             topic: format!("/tenants/demo/devices/{client_id}/events/vehicle_location/jsonarray"),
             points: vec![],
+            compression: false,
         };
         for _ in 0..60 {
             sequence %= u32::MAX;
@@ -176,8 +177,9 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
         clock.tick().await;
         let start = Instant::now();
         let mut gps_array = PayloadArray {
-            topic: format!("/tenants/demo/devices/{client_id}/events/can_raw/jsonarray"),
+            topic: format!("/tenants/demo/devices/{client_id}/events/can_raw/jsonarray/lz4"),
             points: vec![],
+            compression: true,
         };
         for _ in 0..100 {
             sequence %= u32::MAX;
@@ -217,8 +219,9 @@ async fn push_imu(tx: Sender<PayloadArray>, client_id: u32) {
         clock.tick().await;
         let start = Instant::now();
         let mut gps_array = PayloadArray {
-            topic: format!("/tenants/demo/devices/{client_id}/events/imu_sensor/jsonarray"),
+            topic: format!("/tenants/demo/devices/{client_id}/events/imu_sensor/jsonarray/lz4"),
             points: vec![],
+            compression: true,
         };
         for _ in 0..100 {
             sequence %= u32::MAX;
