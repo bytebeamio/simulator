@@ -128,3 +128,14 @@ impl Imu {
         }
     }
 }
+
+pub struct Heartbeat;
+impl Heartbeat {
+    pub fn new(sequence: u32) -> Payload {
+        Payload {
+            sequence,
+            timestamp: Utc::now(),
+            payload: json!({}),
+        }
+    }
+}

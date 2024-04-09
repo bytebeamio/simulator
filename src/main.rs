@@ -24,7 +24,7 @@ use data::{Data, Gps, PayloadArray};
 use mqtt::Mqtt;
 use serializer::Serializer;
 
-use crate::data::{Can, Imu};
+use crate::data::{Can, Heartbeat, Imu};
 
 #[derive(Debug, Deserialize)]
 struct Auth {
@@ -250,6 +250,34 @@ async fn push_imu(tx: Sender<PayloadArray>, client_id: u32) {
     }
 }
 
+// const CAN_RATE: usize = 0.016; // messages/sec i.e. 1 message in 60s
+async fn push_heartbeat(tx: Sender<PayloadArray>, client_id: u32) {
+    let mut sequence = 0;
+    let mut total_time = 0.0;
+    let mut clock = interval(Duration::from_millis(140));
+    loop {
+        clock.tick().await;
+        let start = Instant::now();
+        let mut gps_array = PayloadArray {
+            topic: format!("/tenants/demo/devices/{client_id}/events/device_shadow/jsonarray"),
+            points: vec![],
+            compression: false,
+        };
+        sequence %= u32::MAX;
+        sequence += 1;
+        gps_array.points.push(Heartbeat::new(sequence));
+
+        if let Err(e) = tx.send(gps_array).await {
+            error!("{e}");
+        }
+        total_time += start.elapsed().as_secs_f64();
+        debug!(
+            "client_id: {client_id}; Messages: {sequence}; Avg time: {}",
+            total_time / sequence as f64
+        );
+    }
+}
+
 async fn single_device(client_id: u32, config: Arc<Config>) {
     let (tx, rx) = channel(1);
     let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
@@ -273,6 +301,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
     handle.spawn(push_gps(tx.clone(), client_id));
     handle.spawn(push_can(tx.clone(), client_id));
     handle.spawn(push_imu(tx.clone(), client_id));
+    handle.spawn(push_heartbeat(tx.clone(), client_id));
 
     while let Some(o) = handle.join_next().await {
         if let Err(e) = o {
