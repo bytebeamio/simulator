@@ -296,8 +296,12 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
     eventloop.network_options.set_connection_timeout(30);
 
     let mut handle = JoinSet::new();
-    handle.spawn(async move { Serializer { rx, client }.start(client_id).await });
-    handle.spawn(async move { Mqtt { eventloop }.start(client_id).await });
+    let mut serializer = Serializer {
+        rx,
+        client: client.clone(),
+    };
+    handle.spawn(async move { serializer.start(client_id).await });
+    handle.spawn(async move { Mqtt { eventloop, client }.start(client_id).await });
     handle.spawn(push_gps(tx.clone(), client_id));
     handle.spawn(push_can(tx.clone(), client_id));
     handle.spawn(push_imu(tx.clone(), client_id));

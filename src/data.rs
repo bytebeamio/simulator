@@ -139,3 +139,14 @@ impl Heartbeat {
         }
     }
 }
+
+pub struct ActionResponse;
+impl ActionResponse {
+    pub fn new(sequence: u32, action_id: u32) -> Payload {
+        Payload {
+            sequence,
+            timestamp: Utc::now(),
+            payload: json!({"action_id": action_id, "state": "Started", "progress": 0, "errors": []}),
+        }
+    }
+}
