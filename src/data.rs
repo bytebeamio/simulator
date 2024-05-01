@@ -49,7 +49,7 @@ pub struct Gps {
 }
 
 impl Gps {
-    pub fn new(&self, sequence: u32, bearing_angle: f64, gps_distance: f64) -> Payload {
+    pub fn payload(&self, sequence: u32, bearing_angle: f64, gps_distance: f64) -> Payload {
         Payload {
             sequence,
             timestamp: Utc::now(),

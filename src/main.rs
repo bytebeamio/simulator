@@ -154,7 +154,7 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
             sequence += 1;
             gps_array
                 .points
-                .push(path.next().new(sequence, rng.gen(), rng.gen()));
+                .push(path.next().payload(sequence, rng.gen(), rng.gen()));
         }
         if let Err(e) = tx.send(gps_array).await {
             error!("{e}");
