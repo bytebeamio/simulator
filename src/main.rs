@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use csv::Reader;
 use log::{debug, error};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rumqttc::{AsyncClient, MqttOptions};
@@ -12,7 +13,7 @@ use serde::Deserialize;
 use tokio::{
     sync::mpsc::{channel, Sender},
     task::JoinSet,
-    time::{interval, Duration, Instant},
+    time::{interval, sleep, Duration, Instant},
 };
 use tracing_subscriber::EnvFilter;
 
@@ -169,12 +170,33 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
 
 // const CAN_RATE: usize = 700; // messages/sec i.e. 100 messages in ~140ms
 async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
+    let get_reader = || {
+        let mut can_path = current_dir().unwrap();
+        can_path.push("can");
+        let i = rand::thread_rng().gen_range(0..10);
+        let file_name: String = format!("{i}.csv");
+        can_path.push(file_name);
+
+        BufReader::new(File::open(can_path).unwrap())
+    };
+
+    let mut last_time = None;
     let mut sequence = 0;
     let mut total_time = 0.0;
-    let mut clock = interval(Duration::from_millis(140));
-    let mut rng = StdRng::from_entropy();
+
+    let mut rdr = Reader::from_reader(get_reader());
+    let mut iter = rdr.deserialize::<Can>();
     loop {
-        clock.tick().await;
+        let Some(Ok(rec)) = iter.next() else {
+            rdr = Reader::from_reader(get_reader());
+            iter = rdr.deserialize::<Can>();
+            continue;
+        };
+        if let Some(start) = last_time {
+            let duration = Duration::from_millis(rec.timestamp - start);
+            sleep(duration).await
+        }
+        last_time = Some(rec.timestamp);
         let start = Instant::now();
         let mut gps_array = PayloadArray {
             topic: format!("/tenants/demo/devices/{client_id}/events/can_raw/jsonarray/lz4"),
@@ -184,19 +206,7 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
         for _ in 0..100 {
             sequence %= u32::MAX;
             sequence += 1;
-            gps_array.points.push(Can::new(
-                sequence,
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen_range(0..4),
-            ));
+            gps_array.points.push(rec.payload(sequence));
         }
         if let Err(e) = tx.send(gps_array).await {
             error!("{e}");
