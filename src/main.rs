@@ -186,36 +186,53 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
 
     let mut rdr = Reader::from_reader(get_reader());
     let mut iter = rdr.deserialize::<Can>();
+    let mut points = vec![];
+    let mut start = Instant::now();
+
     loop {
-        let Some(Ok(rec)) = iter.next() else {
-            rdr = Reader::from_reader(get_reader());
-            iter = rdr.deserialize::<Can>();
-            continue;
+        let rec = match iter.next() {
+            Some(Ok(r)) => r,
+            Some(e) => {
+                error!("{e:?}");
+                continue;
+            }
+            _ => {
+                rdr = Reader::from_reader(get_reader());
+                iter = rdr.deserialize::<Can>();
+                continue;
+            }
         };
         if let Some(start) = last_time {
-            let duration = Duration::from_millis(rec.timestamp - start);
+            let diff = match rec.timestamp.checked_sub(start) {
+                Some(d) => d,
+                _ => start - rec.timestamp
+            };
+            let duration = Duration::from_millis(diff);
             sleep(duration).await
         }
         last_time = Some(rec.timestamp);
-        let start = Instant::now();
-        let mut gps_array = PayloadArray {
-            topic: format!("/tenants/demo/devices/{client_id}/events/can_raw/jsonarray/lz4"),
-            points: vec![],
-            compression: true,
-        };
-        for _ in 0..100 {
-            sequence %= u32::MAX;
-            sequence += 1;
-            gps_array.points.push(rec.payload(sequence));
+
+        if points.len() >= 100 {
+            let points = points.drain(0..).collect();
+            let gps_array = PayloadArray {
+                topic: format!("/tenants/demo/devices/{client_id}/events/can_raw/jsonarray/lz4"),
+                points,
+                compression: true,
+            };
+            if let Err(e) = tx.send(gps_array).await {
+                error!("{e}");
+            }
+            total_time += start.elapsed().as_secs_f64();
+            debug!(
+                "client_id: {client_id}; Messages: {sequence}; Avg time: {}",
+                total_time / sequence as f64
+            );
+            start = Instant::now();
         }
-        if let Err(e) = tx.send(gps_array).await {
-            error!("{e}");
-        }
-        total_time += start.elapsed().as_secs_f64();
-        debug!(
-            "client_id: {client_id}; Messages: {sequence}; Avg time: {}",
-            total_time / sequence as f64
-        );
+
+        sequence %= u32::MAX;
+        sequence += 1;
+        points.push(rec.payload(sequence));
     }
 }
 
