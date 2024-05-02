@@ -65,7 +65,6 @@ impl Gps {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Can {
-    sequence: u32,
     can_id: u32,
     byte1: u8,
     byte2: u8,

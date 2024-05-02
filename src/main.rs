@@ -203,10 +203,7 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
             }
         };
         if let Some(start) = last_time {
-            let diff = match rec.timestamp.checked_sub(start) {
-                Some(d) => d,
-                _ => start - rec.timestamp
-            };
+            let diff = rec.timestamp - start;
             let duration = Duration::from_millis(diff);
             sleep(duration).await
         }
