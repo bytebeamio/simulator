@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use log::{debug, error};
 use rumqttc::{AsyncClient, Event, EventLoop, Incoming, Publish, QoS};
@@ -7,6 +10,9 @@ use tokio::{
     spawn,
     time::{sleep, Instant},
 };
+
+static mut SUCCESS_COUNT: AtomicUsize = AtomicUsize::new(0);
+static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 use crate::data::{ActionResponse, Data, PayloadArray};
 
@@ -58,16 +64,28 @@ impl Mqtt {
                         });
                     }
                     debug!("client_id: {client_id}; {m:?}");
+                    unsafe {
+                        SUCCESS_COUNT.fetch_add(1, Ordering::SeqCst);
+                    }
                     success += 1;
                 }
                 Err(e) => {
                     error!("client_id: {client_id}; {e}");
+                    unsafe {
+                        FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+                    }
                     failure += 1;
                 }
             };
             debug!(
-                "client_id: {client_id}; timespent: {}; success = {success}; failure = {failure}",
-                start.elapsed().as_secs_f64()
+                "client_id: {client_id}; timespent: {}; success = {success}; failure = {failure}; total successes = {}; total failures = {}",
+                start.elapsed().as_secs_f64(),
+                unsafe {
+                    SUCCESS_COUNT.load(Ordering::SeqCst)
+                },
+                unsafe {
+                    FAILURE_COUNT.load(Ordering::SeqCst)
+                }
             );
         }
     }
