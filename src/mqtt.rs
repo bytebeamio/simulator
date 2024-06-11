@@ -32,19 +32,28 @@ impl Mqtt {
     pub async fn start(&mut self, client_id: u32) {
         let mut success = 0;
         let mut failure = 0;
+
+        self.client
+            .subscribe(
+                format!("/tenants/demo/devices/{client_id}/actions"),
+                QoS::AtMostOnce,
+            )
+            .await
+            .unwrap();
+
         loop {
             let start = Instant::now();
             match self.eventloop.poll().await {
                 Ok(m) => {
                     if let Event::Incoming(Incoming::Publish(Publish { payload, .. })) = &m {
                         let client = self.client.clone();
-                        let action: Action = serde_json::from_slice(&payload).unwrap();
+                        let action: Action = serde_json::from_slice(payload).unwrap();
                         let action_id = action.action_id.parse().unwrap();
                         spawn(async move {
-                            for sequence in 0..10 {
+                            for sequence in 1..=10 {
                                 let response_array = PayloadArray {
                                     topic: format!(
-                                        "/tenants/demo/devices/{client_id}/action_status"
+                                        "/tenants/demo/devices/{client_id}/action/status"
                                     ),
                                     points: vec![ActionResponse::new(sequence, action_id)],
                                     compression: true,
