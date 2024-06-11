@@ -148,7 +148,7 @@ impl ActionResponse {
         Payload {
             sequence,
             timestamp: Utc::now(),
-            payload: json!({"action_id": action_id, "state": "Started", "progress": 0, "errors": []}),
+            payload: json!({"action_id": action_id, "state": "Started", "progress": sequence * 10, "errors": []}),
         }
     }
 }
