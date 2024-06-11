@@ -39,7 +39,7 @@ struct Config {
     project_id: String,
     broker: String,
     port: u16,
-    authentication: Auth,
+    authentication: Option<Auth>,
 }
 
 #[tokio::main]
@@ -305,16 +305,20 @@ async fn push_heartbeat(tx: Sender<PayloadArray>, client_id: u32) {
 async fn single_device(client_id: u32, config: Arc<Config>) {
     let (tx, rx) = channel(1);
     let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
-    opt.set_transport(rumqttc::Transport::tls_with_config(
-        rumqttc::TlsConfiguration::Simple {
-            ca: config.authentication.ca_certificate.as_bytes().to_vec(),
-            alpn: None,
-            client_auth: Some((
-                config.authentication.device_certificate.as_bytes().to_vec(),
-                config.authentication.device_private_key.as_bytes().to_vec(),
-            )),
-        },
-    ));
+
+    if let Some(authentication) = &config.authentication {
+        opt.set_transport(rumqttc::Transport::tls_with_config(
+            rumqttc::TlsConfiguration::Simple {
+                ca: authentication.ca_certificate.as_bytes().to_vec(),
+                alpn: None,
+                client_auth: Some((
+                    authentication.device_certificate.as_bytes().to_vec(),
+                    authentication.device_private_key.as_bytes().to_vec(),
+                )),
+            },
+        ));
+    }
+
     opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
     let (client, mut eventloop) = AsyncClient::new(opt, 1);
     eventloop.network_options.set_connection_timeout(30);
