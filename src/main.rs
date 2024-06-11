@@ -2,6 +2,7 @@ use std::{
     env::{current_dir, var},
     fs::{read_to_string, File},
     io::BufReader,
+    mem,
     sync::Arc,
 };
 
@@ -113,11 +114,10 @@ impl GpsTrack {
             self.trace_i += 1;
             return self.map[0].clone();
         }
-        loop {
-            let trace_i = self.trace_i;
-            self.trace_i = trace_i % self.map.len();
-            return self.map[trace_i].clone();
-        }
+
+        let trace_i = self.trace_i;
+        self.trace_i = trace_i % self.map.len();
+        self.map[trace_i].clone()
     }
 }
 
@@ -210,7 +210,7 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
         last_time = Some(rec.timestamp);
 
         if points.len() >= 100 {
-            let points = points.drain(0..).collect();
+            let points = mem::take(&mut points);
             let gps_array = PayloadArray {
                 topic: format!("/tenants/demo/devices/{client_id}/events/can_raw/jsonarray/lz4"),
                 points,
@@ -250,18 +250,20 @@ async fn push_imu(tx: Sender<PayloadArray>, client_id: u32) {
         for _ in 0..100 {
             sequence %= u32::MAX;
             sequence += 1;
-            gps_array.points.push(Imu::new(
-                sequence,
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-                rng.gen(),
-            ));
+            gps_array.points.push(
+                Imu {
+                    ax: rng.gen(),
+                    ay: rng.gen(),
+                    az: rng.gen(),
+                    gx: rng.gen(),
+                    gy: rng.gen(),
+                    gz: rng.gen(),
+                    mx: rng.gen(),
+                    my: rng.gen(),
+                    mz: rng.gen(),
+                }
+                .as_payload(sequence),
+            );
         }
         if let Err(e) = tx.send(gps_array).await {
             error!("{e}");
@@ -289,7 +291,7 @@ async fn push_heartbeat(tx: Sender<PayloadArray>, client_id: u32) {
         };
         sequence %= u32::MAX;
         sequence += 1;
-        gps_array.points.push(Heartbeat::new(sequence));
+        gps_array.points.push(Heartbeat::as_payload(sequence));
 
         if let Err(e) = tx.send(gps_array).await {
             error!("{e}");

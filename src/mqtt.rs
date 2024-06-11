@@ -55,7 +55,7 @@ impl Mqtt {
                                     topic: format!(
                                         "/tenants/demo/devices/{client_id}/action/status"
                                     ),
-                                    points: vec![ActionResponse::new(sequence, action_id)],
+                                    points: vec![ActionResponse::as_payload(sequence, action_id)],
                                     compression: true,
                                 };
                                 let payload = response_array.serialized();

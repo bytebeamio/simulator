@@ -99,56 +99,58 @@ impl Can {
     }
 }
 
-pub struct Imu;
+#[derive(Debug, Serialize)]
+pub struct Imu {
+    pub ax: f32,
+    pub ay: f32,
+    pub az: f32,
+    pub gx: f32,
+    pub gy: f32,
+    pub gz: f32,
+    pub mx: f32,
+    pub my: f32,
+    pub mz: f32,
+}
+
 impl Imu {
-    pub fn new(
-        sequence: u32,
-        ax: f32,
-        ay: f32,
-        az: f32,
-        gx: f32,
-        gy: f32,
-        gz: f32,
-        mx: f32,
-        my: f32,
-        mz: f32,
-    ) -> Payload {
+    pub fn as_payload(&self, sequence: u32) -> Payload {
         Payload {
             sequence,
             timestamp: Utc::now(),
-            payload: json!({
-                "ax": ax,
-                "ay": ay,
-                "az": az,
-                "gx": gx,
-                "gy": gy,
-                "gz": gz,
-                "mx": mx,
-                "my": my,
-                "mz": mz,
-            }),
+            payload: json!(self),
         }
     }
 }
 
 pub struct Heartbeat;
 impl Heartbeat {
-    pub fn new(sequence: u32) -> Payload {
+    pub fn as_payload(sequence: u32) -> Payload {
         Payload {
             sequence,
             timestamp: Utc::now(),
-            payload: json!({}),
+            payload: json!({
+                "Status": "Running"
+            }),
         }
     }
 }
 
 pub struct ActionResponse;
 impl ActionResponse {
-    pub fn new(sequence: u32, action_id: u32) -> Payload {
+    pub fn as_payload(sequence: u32, action_id: u32) -> Payload {
         Payload {
             sequence,
             timestamp: Utc::now(),
-            payload: json!({"action_id": action_id, "state": "Started", "progress": sequence * 10, "errors": []}),
+            payload: json!({
+                "action_id": action_id,
+                "state": match sequence {
+                    0 => "Started",
+                    100 => "Completed",
+                    _ => "Running",
+                },
+                "progress": sequence * 10,
+                "errors": [],
+            }),
         }
     }
 }
