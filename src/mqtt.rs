@@ -56,7 +56,7 @@ impl Mqtt {
                                         "/tenants/demo/devices/{client_id}/action/status"
                                     ),
                                     points: vec![ActionResponse::as_payload(sequence, action_id)],
-                                    compression: true,
+                                    compression: false,
                                 };
                                 let payload = response_array.serialized();
                                 client
@@ -68,7 +68,7 @@ impl Mqtt {
                                     )
                                     .await
                                     .unwrap();
-                                sleep(Duration::from_secs(1)).await;
+                                sleep(Duration::from_secs(10)).await;
                             }
                         });
                     }

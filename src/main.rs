@@ -70,7 +70,10 @@ async fn main() {
     let mut tasks: JoinSet<()> = JoinSet::new();
     for i in start_id..=end_id {
         let config = config.clone();
-        tasks.spawn(async move { single_device(i, config).await });
+        tasks.spawn(async move {
+            sleep(Duration::from_millis(10)).await;
+            single_device(i, config).await
+        });
     }
 
     loop {
@@ -146,7 +149,8 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
         clock.tick().await;
         let start = Instant::now();
         let mut gps_array = PayloadArray {
-            topic: format!("/tenants/demo/devices/{client_id}/events/vehicle_location/jsonarray"),
+            // topic: format!("/tenants/demo/devices/{client_id}/events/vehicle_location/jsonarray"),
+            topic: format!("/tenants/demo/devices/{client_id}/events/gps/jsonarray"),
             points: vec![],
             compression: false,
         };
@@ -333,9 +337,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
     handle.spawn(async move { serializer.start(client_id).await });
     handle.spawn(async move { Mqtt { eventloop, client }.start(client_id).await });
     handle.spawn(push_gps(tx.clone(), client_id));
-    handle.spawn(push_can(tx.clone(), client_id));
-    handle.spawn(push_imu(tx.clone(), client_id));
-    handle.spawn(push_heartbeat(tx.clone(), client_id));
+    // handle.spawn(push_can(tx.clone(), client_id));
+    // handle.spawn(push_imu(tx.clone(), client_id));
+    // handle.spawn(push_heartbeat(tx.clone(), client_id));
 
     while let Some(o) = handle.join_next().await {
         if let Err(e) = o {

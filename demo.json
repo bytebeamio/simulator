@@ -1,0 +1,6 @@
+{
+  "project_id": "demo",
+  "device_id": "201",
+  "broker": "ghz-workspace-m2.bytebeam-ghz.zeet.app",
+  "port": 1883
+}
