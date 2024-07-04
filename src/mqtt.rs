@@ -29,17 +29,19 @@ pub struct Mqtt {
 }
 
 impl Mqtt {
-    pub async fn start(&mut self, client_id: u32) {
+    pub async fn start(&mut self, client_id: u32, with_actions: bool) {
         let mut success = 0;
         let mut failure = 0;
 
-        self.client
-            .subscribe(
-                format!("/tenants/demo/devices/{client_id}/actions"),
-                QoS::AtMostOnce,
-            )
-            .await
-            .unwrap();
+        if with_actions {
+            self.client
+                .subscribe(
+                    format!("/tenants/demo/devices/{client_id}/actions"),
+                    QoS::AtMostOnce,
+                )
+                .await
+                .unwrap();
+        }
 
         loop {
             let start = Instant::now();

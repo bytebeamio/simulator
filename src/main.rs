@@ -67,12 +67,17 @@ async fn main() {
         .parse()
         .unwrap();
 
+    let with_actions = var("ACTIONS")
+        .ok()
+        .and_then(|e| e.parse::<bool>().ok())
+        .unwrap_or(false);
+
     let mut tasks: JoinSet<()> = JoinSet::new();
     for i in start_id..=end_id {
         let config = config.clone();
         tasks.spawn(async move {
             sleep(Duration::from_millis(10)).await;
-            single_device(i, config).await
+            single_device(i, config, with_actions).await
         });
     }
 
@@ -143,7 +148,7 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
 
     let mut sequence = 0;
     let mut total_time = 0.0;
-    let mut clock = interval(Duration::from_secs(60));
+    let mut clock = interval(Duration::from_millis(125));
     let mut rng = StdRng::from_entropy();
     loop {
         clock.tick().await;
@@ -241,7 +246,7 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
 async fn push_imu(tx: Sender<PayloadArray>, client_id: u32) {
     let mut sequence = 0;
     let mut total_time = 0.0;
-    let mut clock = interval(Duration::from_millis(140));
+    let mut clock = interval(Duration::from_millis(200));
     let mut rng = StdRng::from_entropy();
     loop {
         clock.tick().await;
@@ -308,7 +313,7 @@ async fn push_heartbeat(tx: Sender<PayloadArray>, client_id: u32) {
     }
 }
 
-async fn single_device(client_id: u32, config: Arc<Config>) {
+async fn single_device(client_id: u32, config: Arc<Config>, with_actions: bool) {
     let (tx, rx) = channel(1);
     let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
 
@@ -335,10 +340,14 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         client: client.clone(),
     };
     handle.spawn(async move { serializer.start(client_id).await });
-    handle.spawn(async move { Mqtt { eventloop, client }.start(client_id).await });
+    handle.spawn(async move {
+        Mqtt { eventloop, client }
+            .start(client_id, with_actions)
+            .await
+    });
     handle.spawn(push_gps(tx.clone(), client_id));
     // handle.spawn(push_can(tx.clone(), client_id));
-    // handle.spawn(push_imu(tx.clone(), client_id));
+    handle.spawn(push_imu(tx.clone(), client_id));
     // handle.spawn(push_heartbeat(tx.clone(), client_id));
 
     while let Some(o) = handle.join_next().await {
