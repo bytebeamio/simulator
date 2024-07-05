@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use chrono::{DateTime, TimeDelta, Utc};
 use csv::Reader;
 use log::{debug, error};
 use rand::seq::SliceRandom;
@@ -15,7 +16,7 @@ use serde::{de::DeserializeOwned, Deserialize};
 use tokio::{
     sync::mpsc::{channel, Sender},
     task::JoinSet,
-    time::{sleep, Duration, Instant},
+    time::{sleep, Instant},
 };
 use tracing_subscriber::EnvFilter;
 
@@ -99,7 +100,7 @@ fn get_reader(path: &PathBuf) -> BufReader<File> {
 }
 
 trait Type: DeserializeOwned + std::fmt::Debug {
-    fn timestamp(&self) -> u64;
+    fn timestamp(&self) -> DateTime<Utc>;
     fn payload(&self, sequence: u32) -> Payload;
 }
 
@@ -134,9 +135,8 @@ async fn push_data<T: Type>(
             }
         };
         if let Some(start) = last_time {
-            let diff = rec.timestamp() - start;
-            let duration = Duration::from_millis(diff);
-            sleep(duration).await
+            let diff: TimeDelta = rec.timestamp() - start;
+            sleep(diff.to_std().unwrap()).await
         }
         last_time = Some(rec.timestamp());
 

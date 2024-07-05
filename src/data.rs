@@ -1,8 +1,8 @@
 use std::io::Write;
 
-use chrono::{serde::ts_milliseconds, DateTime, Utc};
+use chrono::{serde::ts_milliseconds, DateTime, NaiveDateTime, TimeZone, Utc};
 use lz4_flex::frame::FrameEncoder;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 
 use crate::Type;
@@ -44,6 +44,17 @@ impl Data for PayloadArray {
     }
 }
 
+fn deserialize_naive_datetime<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let parsed = NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S%.f")
+        .map_err(serde::de::Error::custom)?;
+
+    Ok(Utc.from_local_datetime(&parsed).unwrap())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Can {
     can_id: u32,
@@ -56,11 +67,12 @@ pub struct Can {
     byte7: u8,
     byte8: u8,
     dbc_ver: u16,
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
 }
 
 impl Type for Can {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -94,11 +106,12 @@ pub struct Imu {
     mx: i32,
     gx: f64,
     my: i32,
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
 }
 
 impl Type for Imu {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -122,7 +135,8 @@ impl Type for Imu {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VicRequest {
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
     action_request: String,
     r#type: String,
     user_id: u32,
@@ -130,7 +144,7 @@ pub struct VicRequest {
 }
 
 impl Type for VicRequest {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -150,7 +164,8 @@ impl Type for VicRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionResult {
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
     action_response: String,
     r#type: String,
     user_id: u32,
@@ -158,7 +173,7 @@ pub struct ActionResult {
 }
 
 impl Type for ActionResult {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -178,7 +193,8 @@ impl Type for ActionResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VehicleLocation {
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
     longitude: f64,
     gps_speed: f64,
     bearing_angle: f64,
@@ -186,7 +202,7 @@ pub struct VehicleLocation {
 }
 
 impl Type for VehicleLocation {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -206,7 +222,8 @@ impl Type for VehicleLocation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VehicleState {
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
     range_3: u32,
     vehicle_mode: u32,
     handle_lock_status: bool,
@@ -218,7 +235,7 @@ pub struct VehicleState {
 }
 
 impl Type for VehicleState {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -242,7 +259,8 @@ impl Type for VehicleState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stop {
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
     location_name: String,
     longitude: f64,
     stop_id: u32,
@@ -253,7 +271,7 @@ pub struct Stop {
 }
 
 impl Type for Stop {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -276,7 +294,8 @@ impl Type for Stop {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RideStatistics {
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
     zero_to_sixty: f64,
     max_left_lean_angle: u32,
     ride_efficiency: f64,
@@ -292,7 +311,7 @@ pub struct RideStatistics {
 }
 
 impl Type for RideStatistics {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -320,7 +339,8 @@ impl Type for RideStatistics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RideSummary {
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
     update_time: String,
     dist_eco: f64,
     zero_to_sixty: f64,
@@ -342,7 +362,7 @@ pub struct RideSummary {
 }
 
 impl Type for RideSummary {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
     fn payload(&self, sequence: u32) -> Payload {
@@ -376,7 +396,8 @@ impl Type for RideSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RideDetail {
-    pub timestamp: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    pub timestamp: DateTime<Utc>,
     zero_to_sixty: f64,
     max_left_lean_angle: u32,
     ride_efficiency: f64,
@@ -393,7 +414,7 @@ pub struct RideDetail {
 }
 
 impl Type for RideDetail {
-    fn timestamp(&self) -> u64 {
+    fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
 
