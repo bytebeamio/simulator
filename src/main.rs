@@ -136,7 +136,10 @@ async fn push_data<T: Type>(
         };
         if let Some(start) = last_time {
             let diff: TimeDelta = rec.timestamp() - start;
-            sleep(diff.to_std().unwrap()).await
+            let Ok(duration) = diff.to_std() else {
+                continue;
+            };
+            sleep(duration).await
         }
         last_time = Some(rec.timestamp());
 
