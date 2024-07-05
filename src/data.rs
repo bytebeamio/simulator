@@ -140,7 +140,7 @@ pub struct VicRequest {
     action_request: String,
     r#type: String,
     user_id: u32,
-    request_id: u32,
+    request_id: String,
 }
 
 impl Type for VicRequest {
@@ -169,7 +169,7 @@ pub struct ActionResult {
     action_response: String,
     r#type: String,
     user_id: u32,
-    request_id: u32,
+    request_id: String,
 }
 
 impl Type for ActionResult {
@@ -264,7 +264,7 @@ pub struct Stop {
     location_name: String,
     longitude: f64,
     stop_id: u32,
-    ride_distance: u32,
+    ride_distance: f64,
     latitude: f64,
     user_id: u32,
     ride_id: u32,
@@ -401,7 +401,8 @@ pub struct RideDetail {
     zero_to_sixty: f64,
     max_left_lean_angle: u32,
     ride_efficiency: f64,
-    start_time: u64,
+    #[serde(deserialize_with = "deserialize_naive_datetime")]
+    start_time: DateTime<Utc>,
     ride_duration: u32,
     energy_consumed: f64,
     ride_distance: f64,
