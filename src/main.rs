@@ -55,9 +55,7 @@ async fn main() {
     let path = var("CONFIG_FILE").expect("Missing env variable");
     let rdr = BufReader::new(File::open(path).unwrap());
     let config: Config = serde_json::from_reader(rdr).unwrap();
-    if config.project_id != "demo" {
-        panic!("Non-demo tenant: {}", config.project_id);
-    }
+
     let config = Arc::new(config);
 
     let start_id = var("START")
@@ -105,7 +103,12 @@ trait Type: DeserializeOwned + std::fmt::Debug {
     fn payload(&self, sequence: u32) -> Payload;
 }
 
-async fn push_data<T: Type>(tx: Sender<PayloadArray>, client_id: u32, stream: &str) {
+async fn push_data<T: Type>(
+    tx: Sender<PayloadArray>,
+    project_id: String,
+    client_id: u32,
+    stream: &str,
+) {
     let mut last_time = None;
     let mut sequence = 0;
     let mut total_time = 0.0;
@@ -140,7 +143,9 @@ async fn push_data<T: Type>(tx: Sender<PayloadArray>, client_id: u32, stream: &s
         if points.len() >= 100 {
             let points = mem::take(&mut points);
             let data_array = PayloadArray {
-                topic: format!("/tenants/demo/devices/{client_id}/events/{stream}/jsonarray/lz4"),
+                topic: format!(
+                    "/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray/lz4"
+                ),
                 points,
                 compression: true,
             };
@@ -190,41 +195,63 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
     handle.spawn(async move { serializer.start(client_id).await });
     handle.spawn(async move { Mqtt { eventloop, client }.start(client_id).await });
 
-    handle.spawn(push_data::<Can>(tx.clone(), client_id, "C2C_CAN"));
-    handle.spawn(push_data::<Imu>(tx.clone(), client_id, "imu_sensor"));
+    handle.spawn(push_data::<Can>(
+        tx.clone(),
+        config.project_id.clone(),
+        client_id,
+        "C2C_CAN",
+    ));
+    handle.spawn(push_data::<Imu>(
+        tx.clone(),
+        config.project_id.clone(),
+        client_id,
+        "imu_sensor",
+    ));
     handle.spawn(push_data::<ActionResult>(
         tx.clone(),
+        config.project_id.clone(),
         client_id,
         "action_result",
     ));
     handle.spawn(push_data::<RideDetail>(
         tx.clone(),
+        config.project_id.clone(),
         client_id,
         "ride_detail",
     ));
     handle.spawn(push_data::<RideSummary>(
         tx.clone(),
+        config.project_id.clone(),
         client_id,
         "ride_summary",
     ));
     handle.spawn(push_data::<RideStatistics>(
         tx.clone(),
+        config.project_id.clone(),
         client_id,
         "ride_statistics",
     ));
-    handle.spawn(push_data::<Stop>(tx.clone(), client_id, "stop"));
+    handle.spawn(push_data::<Stop>(
+        tx.clone(),
+        config.project_id.clone(),
+        client_id,
+        "stop",
+    ));
     handle.spawn(push_data::<VehicleLocation>(
         tx.clone(),
+        config.project_id.clone(),
         client_id,
         "vehicle_location",
     ));
     handle.spawn(push_data::<VehicleState>(
         tx.clone(),
+        config.project_id.clone(),
         client_id,
         "vehicle_state",
     ));
     handle.spawn(push_data::<VicRequest>(
         tx.clone(),
+        config.project_id.clone(),
         client_id,
         "vic_request",
     ));
