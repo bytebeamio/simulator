@@ -5,6 +5,7 @@ use std::{
     mem,
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -109,6 +110,9 @@ async fn push_data<T: Type>(
     project_id: String,
     client_id: u32,
     stream: &str,
+    max_buf_size: usize,
+    timeout: Duration,
+    compression: bool,
 ) {
     let mut last_time = None;
     let mut sequence = 0;
@@ -120,8 +124,12 @@ async fn push_data<T: Type>(
     let mut iter = rdr.deserialize::<T>();
     let mut points = vec![];
     let mut start = Instant::now();
+    let mut push = Instant::now() + timeout;
 
     loop {
+        if points.is_empty() && max_buf_size > 1 {
+            push = Instant::now() + timeout
+        }
         let rec = match iter.next() {
             Some(Ok(r)) => r,
             Some(e) => {
@@ -143,14 +151,21 @@ async fn push_data<T: Type>(
         }
         last_time = Some(rec.timestamp());
 
-        if points.len() >= 100 {
+        sequence %= u32::MAX;
+        sequence += 1;
+        points.push(rec.payload(sequence));
+
+        if points.len() >= max_buf_size || push.elapsed() > Duration::ZERO {
             let points = mem::take(&mut points);
+            let mut topic =
+                format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
+            if compression {
+                topic.push_str("/lz4")
+            }
             let data_array = PayloadArray {
-                topic: format!(
-                    "/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray/lz4"
-                ),
+                topic,
                 points,
-                compression: true,
+                compression,
             };
             if let Err(e) = tx.send(data_array).await {
                 error!("{e}");
@@ -162,10 +177,6 @@ async fn push_data<T: Type>(
             );
             start = Instant::now();
         }
-
-        sequence %= u32::MAX;
-        sequence += 1;
-        points.push(rec.payload(sequence));
     }
 }
 
@@ -203,60 +214,90 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         config.project_id.clone(),
         client_id,
         "C2C_CAN",
+        100,
+        Duration::from_secs(60),
+        true,
     ));
     handle.spawn(push_data::<Imu>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "imu_sensor",
+        100,
+        Duration::from_secs(60),
+        true,
     ));
     handle.spawn(push_data::<ActionResult>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "action_result",
+        1,
+        Duration::from_secs(1),
+        false,
     ));
     handle.spawn(push_data::<RideDetail>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "ride_detail",
+        1,
+        Duration::from_secs(1),
+        false,
     ));
     handle.spawn(push_data::<RideSummary>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "ride_summary",
+        1,
+        Duration::from_secs(1),
+        false,
     ));
     handle.spawn(push_data::<RideStatistics>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "ride_statistics",
+        1,
+        Duration::from_secs(1),
+        false,
     ));
     handle.spawn(push_data::<Stop>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "stop",
+        10,
+        Duration::from_secs(10),
+        false,
     ));
     handle.spawn(push_data::<VehicleLocation>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "vehicle_location",
+        10,
+        Duration::from_secs(10),
+        false,
     ));
     handle.spawn(push_data::<VehicleState>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "vehicle_state",
+        1,
+        Duration::from_secs(1),
+        false,
     ));
     handle.spawn(push_data::<VicRequest>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
         "vic_request",
+        1,
+        Duration::from_secs(1),
+        false,
     ));
 
     while let Some(o) = handle.join_next().await {
