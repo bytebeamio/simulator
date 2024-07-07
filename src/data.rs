@@ -152,7 +152,6 @@ impl Type for VicRequest {
             sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "timestamp": self.timestamp,
                 "action_request": self.action_request,
                 "type": self.r#type,
                 "user_id": self.user_id,
@@ -181,7 +180,6 @@ impl Type for ActionResult {
             sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "timestamp": self.timestamp,
                 "action_response": self.action_response,
                 "type": self.r#type,
                 "user_id": self.user_id,
@@ -210,7 +208,6 @@ impl Type for VehicleLocation {
             sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "timestamp": self.timestamp,
                 "longitude": self.longitude,
                 "gps_speed": self.gps_speed,
                 "bearing_angle": self.bearing_angle,
@@ -243,7 +240,6 @@ impl Type for VehicleState {
             sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "timestamp": self.timestamp,
                 "range_3": self.range_3,
                 "vehicle_mode": self.vehicle_mode,
                 "handle_lock_status": self.handle_lock_status,
@@ -279,7 +275,6 @@ impl Type for Stop {
             sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "timestamp": self.timestamp,
                 "location_name": self.location_name,
                 "longitude": self.longitude,
                 "stop_id": self.stop_id,
@@ -319,7 +314,6 @@ impl Type for RideStatistics {
             sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "timestamp": self.timestamp,
                 "zero_to_sixty": self.zero_to_sixty,
                 "max_left_lean_angle": self.max_left_lean_angle,
                 "ride_efficiency": self.ride_efficiency,
@@ -370,7 +364,6 @@ impl Type for RideSummary {
             sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "timestamp": self.timestamp,
                 "update_time": self.update_time,
                 "dist_eco": self.dist_eco,
                 "zero_to_sixty": self.zero_to_sixty,
@@ -401,8 +394,7 @@ pub struct RideDetail {
     zero_to_sixty: f64,
     max_left_lean_angle: u32,
     ride_efficiency: f64,
-    #[serde(deserialize_with = "deserialize_naive_datetime")]
-    start_time: DateTime<Utc>,
+    start_time: u128,
     ride_duration: u32,
     energy_consumed: f64,
     ride_distance: f64,
@@ -424,7 +416,6 @@ impl Type for RideDetail {
             sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "timestamp": self.timestamp,
                 "zero_to_sixty": self.zero_to_sixty,
                 "max_left_lean_angle": self.max_left_lean_angle,
                 "ride_efficiency": self.ride_efficiency,
