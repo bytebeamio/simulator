@@ -394,7 +394,7 @@ pub struct RideDetail {
     zero_to_sixty: f64,
     max_left_lean_angle: u32,
     ride_efficiency: f64,
-    start_time: u128,
+    start_time: String,
     ride_duration: u32,
     energy_consumed: f64,
     ride_distance: f64,
