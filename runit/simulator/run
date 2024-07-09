@@ -1,5 +1,7 @@
 #!/bin/sh
 
 cd /usr/share/bytebeam/simulator
+# AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are to be provided as env variables
+aws s3 sync s3://$S3_BUCKET data/
 
 exec RUST_LOGS=error simulator
