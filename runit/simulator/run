@@ -4,4 +4,6 @@ cd /usr/share/bytebeam/simulator
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are to be provided as env variables
 aws s3 sync s3://$S3_BUCKET data/
 
+curl -X POST -H "x-bytebeam-api-key: $BYTEBEAM_API_KEY" -H "X-Bytebeam-tenant: $BYTEBEAM_TENANT" 'https://mattersimulation.bytebeam.io/api/v1/devices/1/cert' > $CONFIG_FILE
+
 exec RUST_LOGS=error simulator
