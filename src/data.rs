@@ -453,3 +453,28 @@ impl ActionResponse {
         }
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct DeviceShadow(DateTime<Utc>);
+
+impl Default for DeviceShadow {
+    fn default() -> Self {
+        Self(Utc::now())
+    }
+}
+
+impl Type for DeviceShadow {
+    fn timestamp(&self) -> DateTime<Utc> {
+        self.0
+    }
+
+    fn payload(&self, sequence: u32) -> Payload {
+        Payload {
+            sequence,
+            timestamp: self.0,
+            payload: json!({
+                "Status": "Connected"
+            }),
+        }
+    }
+}

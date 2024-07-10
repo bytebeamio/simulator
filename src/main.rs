@@ -26,8 +26,8 @@ mod mqtt;
 mod serializer;
 
 use data::{
-    ActionResult, Can, Data, Imu, Payload, PayloadArray, RideDetail, RideStatistics, RideSummary,
-    Stop, VehicleLocation, VehicleState, VicRequest,
+    ActionResult, Can, Data, DeviceShadow, Imu, Payload, PayloadArray, RideDetail, RideStatistics,
+    RideSummary, Stop, VehicleLocation, VehicleState, VicRequest,
 };
 use mqtt::Mqtt;
 use serializer::Serializer;
@@ -299,6 +299,21 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(1),
         false,
     ));
+    handle.spawn(async move {
+        let mut sequence = 0;
+        loop {
+            let data_array = PayloadArray {
+                topic: format!("/tenants/demo/devices/{client_id}/events/device_shadow/jsonarray"),
+                points: vec![DeviceShadow::default().payload(sequence)],
+                compression: true,
+            };
+            sequence += 1;
+            if let Err(e) = tx.send(data_array).await {
+                error!("{e}");
+            }
+            sleep(Duration::from_secs(1)).await;
+        }
+    });
 
     while let Some(o) = handle.join_next().await {
         if let Err(e) = o {
