@@ -313,13 +313,13 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
                     config.project_id
                 ),
                 points: vec![DeviceShadow::default().payload(sequence)],
-                compression: true,
+                compression: false,
             };
             sequence += 1;
             if let Err(e) = tx.send(data_array).await {
                 error!("{e}");
             }
-            sleep(Duration::from_secs(1)).await;
+            sleep(Duration::from_secs(10)).await;
         }
     });
 
