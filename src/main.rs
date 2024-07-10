@@ -207,7 +207,12 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         client: client.clone(),
     };
     handle.spawn(async move { serializer.start(client_id).await });
-    handle.spawn(async move { Mqtt { eventloop, client }.start(client_id).await });
+    let project_id = config.project_id.clone();
+    handle.spawn(async move {
+        Mqtt { eventloop, client }
+            .start(project_id, client_id)
+            .await
+    });
 
     handle.spawn(push_data::<Can>(
         tx.clone(),
@@ -303,7 +308,10 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         let mut sequence = 0;
         loop {
             let data_array = PayloadArray {
-                topic: format!("/tenants/demo/devices/{client_id}/events/device_shadow/jsonarray"),
+                topic: format!(
+                    "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
+                    config.project_id
+                ),
                 points: vec![DeviceShadow::default().payload(sequence)],
                 compression: true,
             };

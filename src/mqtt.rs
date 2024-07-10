@@ -29,7 +29,7 @@ pub struct Mqtt {
 }
 
 impl Mqtt {
-    pub async fn start(&mut self, client_id: u32) {
+    pub async fn start(&mut self, project_id: String, client_id: u32) {
         let mut success = 0;
         let mut failure = 0;
 
@@ -49,12 +49,12 @@ impl Mqtt {
                         let client = self.client.clone();
                         let action: Action = serde_json::from_slice(payload).unwrap();
                         let action_id = action.action_id.parse().unwrap();
+                        let topic =
+                            format!("/tenants/{project_id}/devices/{client_id}/action/status");
                         spawn(async move {
                             for sequence in 1..=10 {
                                 let response_array = PayloadArray {
-                                    topic: format!(
-                                        "/tenants/demo/devices/{client_id}/action/status"
-                                    ),
+                                    topic: topic.clone(),
                                     points: vec![ActionResponse::as_payload(sequence, action_id)],
                                     compression: true,
                                 };
