@@ -6,5 +6,4 @@ aws s3 sync s3://$S3_BUCKET data/
 
 curl -X GET -H "x-bytebeam-api-key: $BYTEBEAM_API_KEY" -H "X-Bytebeam-tenant: $BYTEBEAM_TENANT" 'https://mattersimulation.bytebeam.io/api/v1/devices/1/cert' > $CONFIG_FILE
 
-set RUST_LOGS "error"
 exec simulator
