@@ -10,11 +10,12 @@ use std::{
 
 use chrono::{DateTime, TimeDelta, Utc};
 use csv::Reader;
-use log::{debug, error};
+use log::{debug, error, info};
 use rand::seq::SliceRandom;
 use rumqttc::{AsyncClient, MqttOptions};
 use serde::{de::DeserializeOwned, Deserialize};
 use tokio::{
+    runtime::Builder,
     sync::mpsc::{channel, Sender},
     task::JoinSet,
     time::{sleep, Instant},
@@ -47,8 +48,7 @@ struct Config {
     authentication: Option<Auth>,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     tracing_subscriber::fmt()
         .pretty()
         .with_env_filter(EnvFilter::from_env("RUST_LOG"))
@@ -69,17 +69,26 @@ async fn main() {
         .parse()
         .unwrap();
 
-    let mut tasks: JoinSet<()> = JoinSet::new();
-    for i in start_id..=end_id {
-        let config = config.clone();
-        tasks.spawn(async move { single_device(i, config).await });
-    }
-
-    loop {
-        if let Some(Err(e)) = tasks.join_next().await {
-            error!("{e}");
+    let cpu_count = num_cpus::get();
+    info!("Starting simulator on {cpu_count} cpus");
+    let rt = Builder::new_multi_thread()
+        .worker_threads(cpu_count)
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let mut tasks: JoinSet<()> = JoinSet::new();
+        for i in start_id..=end_id {
+            let config = config.clone();
+            tasks.spawn(async move { single_device(i, config).await });
         }
-    }
+
+        loop {
+            if let Some(Err(e)) = tasks.join_next().await {
+                error!("{e}");
+            }
+        }
+    });
 }
 
 fn get_reader(path: &PathBuf) -> BufReader<File> {

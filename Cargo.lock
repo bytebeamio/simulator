@@ -719,6 +719,7 @@ dependencies = [
  "csv",
  "log",
  "lz4_flex",
+ "num_cpus",
  "rand",
  "rumqttc",
  "serde",

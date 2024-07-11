@@ -8,6 +8,7 @@ chrono = { version = "0.4.35", features = ["serde"] }
 csv = "1.3"
 log = "0.4.21"
 lz4_flex = "0.10"
+num_cpus = "1.16.0"
 rand = "0.8.5"
 rumqttc = { git = "https://github.com/bytebeamio/rumqtt" }
 serde = { version = "1.0.197", features = ["derive"] }
