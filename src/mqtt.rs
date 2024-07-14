@@ -84,6 +84,7 @@ impl Mqtt {
                         FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
                     }
                     failure += 1;
+                    sleep(Duration::from_secs(10)).await;
                 }
             };
             debug!(
