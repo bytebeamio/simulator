@@ -18,7 +18,7 @@ use tokio::{
     runtime::Builder,
     sync::mpsc::{channel, Sender},
     task::JoinSet,
-    time::{sleep, Instant},
+    time::{interval, sleep, Instant},
 };
 use tracing_subscriber::EnvFilter;
 
@@ -315,7 +315,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
     ));
     handle.spawn(async move {
         let mut sequence = 0;
+        let mut interval = interval(Duration::from_secs(10));
         loop {
+            interval.tick().await;
             let data_array = PayloadArray {
                 topic: format!(
                     "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
@@ -328,7 +330,6 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
             if let Err(e) = tx.send(data_array).await {
                 error!("{e}");
             }
-            sleep(Duration::from_secs(10)).await;
         }
     });
 
