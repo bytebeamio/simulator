@@ -1,6 +1,6 @@
 {
   "project_id": "demo",
-  "device_id": "103",
+  "device_id": "10",
   "broker": "127.0.0.1",
-  "port": 1884
+  "port": 1883
 }

@@ -46,7 +46,7 @@ struct Config {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .pretty()
+        .compact()
         .with_env_filter(EnvFilter::from_env("RUST_LOG"))
         .try_init()
         .expect("initialized subscriber succesfully");
@@ -75,10 +75,8 @@ async fn main() {
     let mut tasks: JoinSet<()> = JoinSet::new();
     for i in start_id..=end_id {
         let config = config.clone();
-        tasks.spawn(async move {
-            sleep(Duration::from_millis(10)).await;
-            single_device(i, config, with_actions).await
-        });
+        sleep(Duration::from_millis(10)).await;
+        tasks.spawn(async move { single_device(i, config, with_actions).await });
     }
 
     loop {
@@ -148,7 +146,7 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
 
     let mut sequence = 0;
     let mut total_time = 0.0;
-    let mut clock = interval(Duration::from_millis(125));
+    let mut clock = interval(Duration::from_secs(1));
     let mut rng = StdRng::from_entropy();
     loop {
         clock.tick().await;
@@ -159,7 +157,7 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
             points: vec![],
             compression: false,
         };
-        for _ in 0..60 {
+        for _ in 0..10 {
             sequence %= u32::MAX;
             sequence += 1;
             gps_array
@@ -315,7 +313,15 @@ async fn push_heartbeat(tx: Sender<PayloadArray>, client_id: u32) {
 
 async fn single_device(client_id: u32, config: Arc<Config>, with_actions: bool) {
     let (tx, rx) = channel(1);
-    let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
+
+    let port = if config.port == 0 {
+        // Get random port between 1883/4/5 for local testing!
+        1883 + rand::thread_rng().gen_range(0..3)
+    } else {
+        config.port
+    };
+
+    let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, port);
 
     if let Some(authentication) = &config.authentication {
         opt.set_transport(rumqttc::Transport::tls_with_config(
@@ -345,9 +351,13 @@ async fn single_device(client_id: u32, config: Arc<Config>, with_actions: bool) 
             .start(client_id, with_actions)
             .await
     });
-    handle.spawn(push_gps(tx.clone(), client_id));
+
+    if !with_actions {
+        handle.spawn(push_gps(tx.clone(), client_id));
+    }
+
     // handle.spawn(push_can(tx.clone(), client_id));
-    handle.spawn(push_imu(tx.clone(), client_id));
+    // handle.spawn(push_imu(tx.clone(), client_id));
     // handle.spawn(push_heartbeat(tx.clone(), client_id));
 
     while let Some(o) = handle.join_next().await {

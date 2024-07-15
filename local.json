@@ -2,5 +2,5 @@
   "project_id": "demo",
   "device_id": "0",
   "broker": "127.0.0.1",
-  "port": 1883
+  "port": 0
 }
