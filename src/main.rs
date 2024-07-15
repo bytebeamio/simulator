@@ -16,6 +16,7 @@ use rumqttc::{AsyncClient, MqttOptions};
 use serde::{de::DeserializeOwned, Deserialize};
 use tokio::{
     runtime::Builder,
+    spawn,
     sync::mpsc::{channel, Sender},
     task::JoinSet,
     time::{interval, sleep, Instant},
@@ -210,20 +211,19 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
     let (client, mut eventloop) = AsyncClient::new(opt, 1);
     eventloop.network_options.set_connection_timeout(30);
 
-    let mut handle = JoinSet::new();
     let mut serializer = Serializer {
         rx,
         client: client.clone(),
     };
-    handle.spawn(async move { serializer.start(client_id).await });
+    spawn(async move { serializer.start(client_id).await });
     let project_id = config.project_id.clone();
-    handle.spawn(async move {
+    spawn(async move {
         Mqtt { eventloop, client }
             .start(project_id, client_id)
             .await
     });
 
-    handle.spawn(push_data::<Can>(
+    spawn(push_data::<Can>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -232,7 +232,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(60),
         true,
     ));
-    handle.spawn(push_data::<Imu>(
+    spawn(push_data::<Imu>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -241,7 +241,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(60),
         true,
     ));
-    handle.spawn(push_data::<ActionResult>(
+    spawn(push_data::<ActionResult>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -250,7 +250,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(1),
         false,
     ));
-    handle.spawn(push_data::<RideDetail>(
+    spawn(push_data::<RideDetail>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -259,7 +259,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(1),
         false,
     ));
-    handle.spawn(push_data::<RideSummary>(
+    spawn(push_data::<RideSummary>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -268,7 +268,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(1),
         false,
     ));
-    handle.spawn(push_data::<RideStatistics>(
+    spawn(push_data::<RideStatistics>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -277,7 +277,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(1),
         false,
     ));
-    handle.spawn(push_data::<Stop>(
+    spawn(push_data::<Stop>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -286,7 +286,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(10),
         false,
     ));
-    handle.spawn(push_data::<VehicleLocation>(
+    spawn(push_data::<VehicleLocation>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -295,7 +295,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(10),
         false,
     ));
-    handle.spawn(push_data::<VehicleState>(
+    spawn(push_data::<VehicleState>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -304,7 +304,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(1),
         false,
     ));
-    handle.spawn(push_data::<VicRequest>(
+    spawn(push_data::<VicRequest>(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -313,28 +313,21 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         Duration::from_secs(1),
         false,
     ));
-    handle.spawn(async move {
-        let mut sequence = 0;
-        let mut interval = interval(Duration::from_secs(10));
-        loop {
-            interval.tick().await;
-            let data_array = PayloadArray {
-                topic: format!(
-                    "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
-                    config.project_id
-                ),
-                points: vec![DeviceShadow::default().payload(sequence)],
-                compression: false,
-            };
-            sequence += 1;
-            if let Err(e) = tx.send(data_array).await {
-                error!("{e}");
-            }
-        }
-    });
 
-    while let Some(o) = handle.join_next().await {
-        if let Err(e) = o {
+    let mut sequence = 0;
+    let mut interval = interval(Duration::from_secs(10));
+    loop {
+        interval.tick().await;
+        let data_array = PayloadArray {
+            topic: format!(
+                "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
+                config.project_id
+            ),
+            points: vec![DeviceShadow::default().payload(sequence)],
+            compression: false,
+        };
+        sequence += 1;
+        if let Err(e) = tx.send(data_array).await {
             error!("{e}");
         }
     }
