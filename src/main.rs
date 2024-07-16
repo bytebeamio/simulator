@@ -10,7 +10,7 @@ use std::{
 
 use chrono::{DateTime, TimeDelta, Utc};
 use csv::Reader;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rand::seq::SliceRandom;
 use rumqttc::{AsyncClient, MqttOptions};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -154,10 +154,11 @@ async fn push_data<T: Type>(
         };
         if let Some(start) = last_time {
             let diff: TimeDelta = rec.timestamp() - start;
-            let Ok(duration) = diff.to_std() else {
-                continue;
+            if let Ok(duration) = diff.to_std() {
+                sleep(duration).await
+            } else {
+                warn!("delayed: {diff}")
             };
-            sleep(duration).await
         }
         last_time = Some(rec.timestamp());
 
