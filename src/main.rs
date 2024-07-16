@@ -1,19 +1,17 @@
 use std::{
     env::{current_dir, var},
-    fs::{read_dir, File},
+    fs::File,
     io::BufReader,
     mem,
-    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
 
-use chrono::{DateTime, TimeDelta, Utc};
-use csv::Reader;
+use chrono::TimeDelta;
 use log::{debug, error, info, warn};
-use rand::seq::SliceRandom;
+use rand::{rngs::StdRng, SeedableRng};
 use rumqttc::{AsyncClient, MqttOptions};
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::Deserialize;
 use tokio::{
     runtime::Builder,
     spawn,
@@ -28,8 +26,8 @@ mod mqtt;
 mod serializer;
 
 use data::{
-    ActionResult, Can, Data, DeviceShadow, Imu, Payload, PayloadArray, RideDetail, RideStatistics,
-    RideSummary, Stop, VehicleLocation, VehicleState, VicRequest,
+    ActionResult, Can, Data, DeviceShadow, Historical, Imu, PayloadArray, RideDetail,
+    RideStatistics, RideSummary, Stop, Type, VehicleLocation, VehicleState, VicRequest,
 };
 use mqtt::Mqtt;
 use serializer::Serializer;
@@ -77,11 +75,26 @@ fn main() {
         .enable_all()
         .build()
         .unwrap();
+
+    let mut historical = Historical::new();
+    historical.load::<Can>("C2C_CAN");
+    historical.load::<Imu>("imu_sensor");
+    historical.load::<ActionResult>("action_result");
+    historical.load::<RideDetail>("ride_detail");
+    historical.load::<RideSummary>("ride_summary");
+    historical.load::<RideStatistics>("ride_statistics");
+    historical.load::<Stop>("stop");
+    historical.load::<VehicleLocation>("vehicle_location");
+    historical.load::<VehicleState>("vehicle_state");
+    historical.load::<VicRequest>("vic_request");
+    let data = Arc::new(historical);
+
     rt.block_on(async {
         let mut tasks: JoinSet<()> = JoinSet::new();
         for i in start_id..=end_id {
             let config = config.clone();
-            tasks.spawn(async move { single_device(i, config).await });
+            let data = data.clone();
+            tasks.spawn(async move { single_device(i, config, data).await });
         }
 
         loop {
@@ -92,30 +105,7 @@ fn main() {
     });
 }
 
-fn get_reader(path: &PathBuf) -> BufReader<File> {
-    let paths: Vec<_> = read_dir(path)
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().is_file())
-        .map(|e| e.path())
-        .collect();
-    if paths.is_empty() {
-        println!("No files found in the directory.");
-    }
-
-    // Choose a random file
-    let mut rng = rand::thread_rng();
-    let path = paths.choose(&mut rng).unwrap();
-
-    BufReader::new(File::open(path).unwrap())
-}
-
-trait Type: DeserializeOwned + std::fmt::Debug {
-    fn timestamp(&self) -> DateTime<Utc>;
-    fn payload(&self, sequence: u32) -> Payload;
-}
-
-async fn push_data<T: Type>(
+async fn push_data(
     tx: Sender<PayloadArray>,
     project_id: String,
     client_id: u32,
@@ -123,6 +113,7 @@ async fn push_data<T: Type>(
     max_buf_size: usize,
     timeout: Duration,
     compression: bool,
+    data: Arc<Historical>,
 ) {
     let mut last_time = None;
     let mut sequence = 0;
@@ -130,25 +121,22 @@ async fn push_data<T: Type>(
 
     let mut data_path = current_dir().unwrap();
     data_path.push(format!("data/{stream}"));
-    let mut rdr = Reader::from_reader(get_reader(&data_path));
-    let mut iter = rdr.deserialize::<T>();
+
     let mut points = vec![];
     let mut start = Instant::now();
     let mut push = Instant::now() + timeout;
+
+    let mut rng = StdRng::from_entropy();
+    let mut iter = data.get_random(stream, &mut rng).iter();
 
     loop {
         if points.is_empty() && max_buf_size > 1 {
             push = Instant::now() + timeout
         }
-        let rec = match iter.next() {
-            Some(Ok(r)) => r,
-            Some(e) => {
-                error!("{e:?}");
-                continue;
-            }
+        let rec: &Box<dyn Type> = match iter.next() {
+            Some(r) => r,
             _ => {
-                rdr = Reader::from_reader(get_reader(&data_path));
-                iter = rdr.deserialize::<T>();
+                iter = data.get_random(stream, &mut rng).iter();
                 continue;
             }
         };
@@ -191,7 +179,7 @@ async fn push_data<T: Type>(
     }
 }
 
-async fn single_device(client_id: u32, config: Arc<Config>) {
+async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical>) {
     let (tx, rx) = channel(1);
     let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
 
@@ -224,7 +212,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
             .await
     });
 
-    spawn(push_data::<Can>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -232,8 +220,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         100,
         Duration::from_secs(60),
         true,
+        data.clone(),
     ));
-    spawn(push_data::<Imu>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -241,8 +230,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         100,
         Duration::from_secs(60),
         true,
+        data.clone(),
     ));
-    spawn(push_data::<ActionResult>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -250,8 +240,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         1,
         Duration::from_secs(1),
         false,
+        data.clone(),
     ));
-    spawn(push_data::<RideDetail>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -259,8 +250,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         1,
         Duration::from_secs(1),
         false,
+        data.clone(),
     ));
-    spawn(push_data::<RideSummary>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -268,8 +260,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         1,
         Duration::from_secs(1),
         false,
+        data.clone(),
     ));
-    spawn(push_data::<RideStatistics>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -277,8 +270,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         1,
         Duration::from_secs(1),
         false,
+        data.clone(),
     ));
-    spawn(push_data::<Stop>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -286,8 +280,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         10,
         Duration::from_secs(10),
         false,
+        data.clone(),
     ));
-    spawn(push_data::<VehicleLocation>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -295,8 +290,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         10,
         Duration::from_secs(10),
         false,
+        data.clone(),
     ));
-    spawn(push_data::<VehicleState>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -304,8 +300,9 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         1,
         Duration::from_secs(1),
         false,
+        data.clone(),
     ));
-    spawn(push_data::<VicRequest>(
+    spawn(push_data(
         tx.clone(),
         config.project_id.clone(),
         client_id,
@@ -313,6 +310,7 @@ async fn single_device(client_id: u32, config: Arc<Config>) {
         1,
         Duration::from_secs(1),
         false,
+        data.clone(),
     ));
 
     let mut sequence = 0;

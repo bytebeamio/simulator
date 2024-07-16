@@ -1,15 +1,72 @@
-use std::io::Write;
+use std::{
+    collections::HashMap,
+    env::current_dir,
+    fs::{read_dir, File},
+    io::{BufReader, Write},
+};
 
 use chrono::{serde::ts_milliseconds, DateTime, NaiveDateTime, TimeZone, Utc};
+use csv::Reader;
 use lz4_flex::frame::FrameEncoder;
-use serde::{Deserialize, Deserializer, Serialize};
+use rand::{rngs::StdRng, seq::SliceRandom};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 
-use crate::Type;
+pub trait Type: std::fmt::Debug + Send + Sync + 'static {
+    fn timestamp(&self) -> DateTime<Utc>;
+    fn payload(&self, sequence: u32) -> Payload;
+}
 
 pub trait Data {
     fn topic(&self) -> &str;
     fn serialized(&self) -> Vec<u8>;
+}
+
+type Dump = Vec<Box<dyn Type>>;
+
+pub struct Historical {
+    data: HashMap<String, Vec<Dump>>,
+}
+
+impl Historical {
+    pub fn new() -> Self {
+        Self {
+            data: HashMap::new(),
+        }
+    }
+
+    pub fn load<T: Type + DeserializeOwned + 'static>(&mut self, stream: &str) {
+        let mut path = current_dir().unwrap();
+        path.push(format!("data/{stream}"));
+        let paths: Vec<_> = read_dir(path)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().is_file())
+            .map(|e| e.path())
+            .collect();
+        if paths.is_empty() {
+            println!("No files found in the directory.");
+        }
+
+        let mut list = vec![];
+        for path in paths {
+            let file = File::open(path).unwrap();
+            let buf = BufReader::new(file);
+            let mut rdr = Reader::from_reader(buf);
+            let file: Vec<_> = rdr
+                .deserialize::<T>()
+                .filter_map(Result::ok)
+                .map(|d| Box::new(d) as Box<(dyn Type)>)
+                .collect();
+            list.push(file);
+        }
+        self.data.insert(stream.to_owned(), list);
+    }
+
+    pub fn get_random(&self, stream: &str, rng: &mut StdRng) -> &Dump {
+        let dumps = self.data.get(stream).unwrap();
+        dumps.choose(rng).unwrap()
+    }
 }
 
 #[derive(Debug, Serialize)]
