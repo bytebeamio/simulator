@@ -8,15 +8,13 @@ use std::{
 };
 
 use chrono::TimeDelta;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use rand::{rngs::StdRng, SeedableRng};
 use rumqttc::{AsyncClient, MqttOptions};
 use serde::Deserialize;
 use tokio::{
-    runtime::Builder,
     spawn,
     sync::mpsc::{channel, Sender},
-    task::JoinSet,
     time::{interval, sleep_until, Instant},
 };
 use tracing_subscriber::EnvFilter;
@@ -68,14 +66,6 @@ fn main() {
         .parse()
         .unwrap();
 
-    let cpu_count = num_cpus::get();
-    info!("Starting simulator on {cpu_count} cpus");
-    let rt = Builder::new_multi_thread()
-        .worker_threads(cpu_count)
-        .enable_all()
-        .build()
-        .unwrap();
-
     let mut historical = Historical::new();
     historical.load::<Can>("C2C_CAN");
     historical.load::<Imu>("imu_sensor");
@@ -89,20 +79,16 @@ fn main() {
     historical.load::<VicRequest>("vic_request");
     let data = Arc::new(historical);
 
-    rt.block_on(async {
-        let mut tasks: JoinSet<()> = JoinSet::new();
-        for i in start_id..=end_id {
-            let config = config.clone();
-            let data = data.clone();
-            tasks.spawn(async move { single_device(i, config, data).await });
-        }
+    let mut threads = vec![];
+    for i in start_id..=end_id {
+        let config = config.clone();
+        let data = data.clone();
+        threads.push(std::thread::spawn(move || single_device(i, config, data)));
+    }
 
-        loop {
-            if let Some(Err(e)) = tasks.join_next().await {
-                error!("{e}");
-            }
-        }
-    });
+    for thread in threads {
+        thread.join().unwrap()
+    }
 }
 
 async fn push_data(
@@ -182,6 +168,7 @@ async fn push_data(
     }
 }
 
+#[tokio::main]
 async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical>) {
     let (tx, rx) = channel(1);
     let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
