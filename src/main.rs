@@ -17,7 +17,7 @@ use tokio::{
     spawn,
     sync::mpsc::{channel, Sender},
     task::JoinSet,
-    time::{interval, sleep, Instant},
+    time::{interval, sleep_until, Instant},
 };
 use tracing_subscriber::EnvFilter;
 
@@ -142,11 +142,14 @@ async fn push_data(
         };
         if let Some(start) = last_time {
             let diff: TimeDelta = rec.timestamp() - start;
-            if let Ok(duration) = diff.to_std() {
-                sleep(duration).await
-            } else {
-                warn!("delayed: {diff}")
-            };
+            let duration = diff.abs().to_std().unwrap();
+            let deadline = Instant::now() + duration;
+            sleep_until(deadline).await;
+
+            let elapsed = deadline.elapsed();
+            if elapsed > Duration::from_secs(1) {
+                warn!("Time waited beyond elapsed: {}s", elapsed.as_secs())
+            }
         }
         last_time = Some(rec.timestamp());
 
