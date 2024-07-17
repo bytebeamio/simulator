@@ -13,8 +13,10 @@ use rand::{rngs::StdRng, SeedableRng};
 use rumqttc::{AsyncClient, MqttOptions};
 use serde::Deserialize;
 use tokio::{
+    runtime::Builder,
     select, spawn,
     sync::mpsc::{channel, Receiver, Sender},
+    task::JoinSet,
     time::{interval, sleep, sleep_until, Instant, Sleep},
 };
 use tracing_subscriber::EnvFilter;
@@ -81,16 +83,27 @@ fn main() {
 
     info!("Data loaded into memory");
 
-    let mut threads = vec![];
-    for i in start_id..=end_id {
-        let config = config.clone();
-        let data = data.clone();
-        threads.push(std::thread::spawn(move || single_device(i, config, data)));
-    }
+    let cpu_count = num_cpus::get();
+    info!("Starting simulator on {cpu_count} cpus");
+    Builder::new_multi_thread()
+        .worker_threads(cpu_count)
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let mut tasks: JoinSet<()> = JoinSet::new();
+            for i in start_id..=end_id {
+                let config = config.clone();
+                let data = data.clone();
+                tasks.spawn(async move { single_device(i, config, data).await });
+            }
 
-    for thread in threads {
-        thread.join().unwrap()
-    }
+            loop {
+                if let Some(Err(e)) = tasks.join_next().await {
+                    error!("{e}");
+                }
+            }
+        });
 }
 
 async fn batch_data(
@@ -202,7 +215,6 @@ async fn push_data(
     }
 }
 
-#[tokio::main]
 async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical>) {
     info!("Starting device {client_id}");
     let (tx, rx) = channel(1);
