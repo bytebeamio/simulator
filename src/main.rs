@@ -8,7 +8,7 @@ use std::{
 };
 
 use chrono::TimeDelta;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, SeedableRng};
 use rumqttc::{AsyncClient, MqttOptions};
 use serde::Deserialize;
@@ -78,6 +78,8 @@ fn main() {
     historical.load::<VehicleState>("vehicle_state");
     historical.load::<VicRequest>("vic_request");
     let data = Arc::new(historical);
+
+    info!("Data loaded into memory");
 
     let mut threads = vec![];
     for i in start_id..=end_id {
@@ -202,6 +204,7 @@ async fn push_data(
 
 #[tokio::main]
 async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical>) {
+    info!("Starting device {client_id}");
     let (tx, rx) = channel(1);
     let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
 
