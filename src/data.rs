@@ -84,6 +84,16 @@ pub struct PayloadArray {
     pub compression: bool,
 }
 
+impl PayloadArray {
+    pub fn take(&mut self) -> Self {
+        Self {
+            topic: self.topic.clone(),
+            points: std::mem::take(&mut self.points),
+            compression: self.compression,
+        }
+    }
+}
+
 impl Data for PayloadArray {
     fn topic(&self) -> &str {
         &self.topic

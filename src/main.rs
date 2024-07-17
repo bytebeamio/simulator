@@ -2,7 +2,7 @@ use std::{
     env::{current_dir, var},
     fs::File,
     io::BufReader,
-    mem,
+    pin::Pin,
     sync::Arc,
     time::Duration,
 };
@@ -13,9 +13,9 @@ use rand::{rngs::StdRng, SeedableRng};
 use rumqttc::{AsyncClient, MqttOptions};
 use serde::Deserialize;
 use tokio::{
-    spawn,
-    sync::mpsc::{channel, Sender},
-    time::{interval, sleep_until, Instant},
+    select, spawn,
+    sync::mpsc::{channel, Receiver, Sender},
+    time::{interval, sleep, sleep_until, Instant, Sleep},
 };
 use tracing_subscriber::EnvFilter;
 
@@ -24,7 +24,7 @@ mod mqtt;
 mod serializer;
 
 use data::{
-    ActionResult, Can, Data, DeviceShadow, Historical, Imu, PayloadArray, RideDetail,
+    ActionResult, Can, Data, DeviceShadow, Historical, Imu, Payload, PayloadArray, RideDetail,
     RideStatistics, RideSummary, Stop, Type, VehicleLocation, VehicleState, VicRequest,
 };
 use mqtt::Mqtt;
@@ -91,8 +91,46 @@ fn main() {
     }
 }
 
-async fn push_data(
+async fn batch_data(
+    mut rx: Receiver<Payload>,
     tx: Sender<PayloadArray>,
+    topic: String,
+    max_buf_size: usize,
+    timeout: Duration,
+    compression: bool,
+) {
+    let mut data_array = PayloadArray {
+        topic,
+        points: vec![],
+        compression,
+    };
+    let mut end: Pin<Box<Sleep>> = Box::pin(sleep(Duration::from_secs(u64::MAX)));
+    let mut push = None;
+    loop {
+        select! {
+            Some(payload) = rx.recv() => {
+                if data_array.points.is_empty() {
+                    push = Some( Box::pin(sleep(timeout)))
+                }
+                data_array.points.push(payload);
+                if data_array.points.len() < max_buf_size {
+                    continue
+                }
+            }
+            _ = &mut push.as_mut().map(|a| a).unwrap_or(&mut end) => {
+                push.take();
+            }
+        }
+
+        if let Err(e) = tx.send(data_array.take()).await {
+            error!("{e}");
+        }
+        data_array.points.clear();
+    }
+}
+
+async fn push_data(
+    batch_tx: Sender<PayloadArray>,
     project_id: String,
     client_id: u32,
     stream: &str,
@@ -108,17 +146,25 @@ async fn push_data(
     let mut data_path = current_dir().unwrap();
     data_path.push(format!("data/{stream}"));
 
-    let mut points = vec![];
-    let mut start = Instant::now();
-    let mut push = Instant::now() + timeout;
-
     let mut rng = StdRng::from_entropy();
     let mut iter = data.get_random(stream, &mut rng).iter();
+    let mut start = Instant::now();
+
+    let (tx, rx) = channel(1);
+    let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
+    if compression {
+        topic.push_str("/lz4")
+    }
+    spawn(batch_data(
+        rx,
+        batch_tx,
+        topic,
+        max_buf_size,
+        timeout,
+        compression,
+    ));
 
     loop {
-        if points.is_empty() && max_buf_size > 1 {
-            push = Instant::now() + timeout
-        }
         let rec: &Box<dyn Type> = match iter.next() {
             Some(r) => r,
             _ => {
@@ -141,30 +187,16 @@ async fn push_data(
 
         sequence %= u32::MAX;
         sequence += 1;
-        points.push(rec.payload(sequence));
-
-        if points.len() >= max_buf_size || push.elapsed() > Duration::ZERO {
-            let points = mem::take(&mut points);
-            let mut topic =
-                format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
-            if compression {
-                topic.push_str("/lz4")
-            }
-            let data_array = PayloadArray {
-                topic,
-                points,
-                compression,
-            };
-            if let Err(e) = tx.send(data_array).await {
-                error!("{e}");
-            }
-            total_time += start.elapsed().as_secs_f64();
-            debug!(
-                "client_id: {client_id}; Messages: {sequence}; Avg time: {}",
-                total_time / sequence as f64
-            );
-            start = Instant::now();
+        if let Err(e) = tx.try_send(rec.payload(sequence)) {
+            error!("{e}")
         }
+
+        total_time += start.elapsed().as_secs_f64();
+        debug!(
+            "client_id: {client_id}; Messages: {sequence}; Avg time: {}",
+            total_time / sequence as f64
+        );
+        start = Instant::now();
     }
 }
 
