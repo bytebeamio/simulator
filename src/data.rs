@@ -3,12 +3,14 @@ use std::{
     env::current_dir,
     fs::{read_dir, File},
     io::{BufReader, Write},
+    sync::Mutex,
 };
 
 use chrono::{serde::ts_milliseconds, DateTime, NaiveDateTime, TimeZone, Utc};
 use csv::Reader;
 use lz4_flex::frame::FrameEncoder;
 use rand::{rngs::StdRng, seq::SliceRandom};
+use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 
@@ -38,29 +40,40 @@ impl Historical {
     pub fn load<T: Type + DeserializeOwned + 'static>(&mut self, stream: &str) {
         let mut path = current_dir().unwrap();
         path.push(format!("data/{stream}"));
-        let paths: Vec<_> = read_dir(path)
+
+        let paths: Vec<_> = read_dir(&path)
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| entry.path().is_file())
             .map(|e| e.path())
             .collect();
+
         if paths.is_empty() {
             println!("No files found in the directory.");
+            return;
         }
 
-        let mut list = vec![];
-        for path in paths {
+        // Mutex to safely update the list in parallel
+        let list = Mutex::new(vec![]);
+
+        paths.par_iter().for_each(|path| {
             let file = File::open(path).unwrap();
             let buf = BufReader::new(file);
             let mut rdr = Reader::from_reader(buf);
+
             let file: Vec<_> = rdr
                 .deserialize::<T>()
                 .filter_map(Result::ok)
-                .map(|d| Box::new(d) as Box<(dyn Type)>)
+                .map(|d| Box::new(d) as Box<dyn Type>)
                 .collect();
-            list.push(file);
-        }
-        self.data.insert(stream.to_owned(), list);
+
+            // Safely push to the list inside the Mutex
+            list.lock().unwrap().push(file);
+        });
+
+        // Unwrap the Mutex and insert the list into the data map
+        self.data
+            .insert(stream.to_owned(), list.into_inner().unwrap());
     }
 
     pub fn get_random(&self, stream: &str, rng: &mut StdRng) -> &Dump {
