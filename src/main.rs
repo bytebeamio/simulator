@@ -137,7 +137,7 @@ async fn batch_data(
             }
         }
 
-        if let Err(e) = tx.send(data_array.take()).await {
+        if let Err(e) = tx.try_send(data_array.take()) {
             error!("{e}");
         }
         data_array.points.clear();
