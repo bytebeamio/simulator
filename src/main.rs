@@ -10,7 +10,7 @@ use std::{
 use chrono::TimeDelta;
 use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, SeedableRng};
-use rumqttc::{AsyncClient, MqttOptions};
+use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
 use serde::Deserialize;
 use tokio::{
     runtime::Builder,
@@ -236,6 +236,12 @@ async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical
     opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
     let (client, mut eventloop) = AsyncClient::new(opt, 1);
     eventloop.network_options.set_connection_timeout(30);
+    // Don't start simulation till first connack
+    loop {
+        if let Ok(Event::Incoming(Incoming::ConnAck(_))) = eventloop.poll().await {
+            break;
+        }
+    }
 
     let mut serializer = Serializer {
         rx,

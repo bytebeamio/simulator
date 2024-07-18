@@ -15,12 +15,11 @@ impl Serializer {
     pub async fn start(&mut self, client_id: u32) {
         while let Some(d) = self.rx.recv().await {
             let start = Instant::now();
-            if let Err(e) = self
-                .client
-                .publish(d.topic(), QoS::AtLeastOnce, false, d.serialized())
-                .await
+            if let Err(e) =
+                self.client
+                    .try_publish(d.topic(), QoS::AtLeastOnce, false, d.serialized())
             {
-                error!("{e}");
+                error!("{client_id}: {e}");
             }
             debug!(
                 "client_id: {client_id}; timespent: {}",

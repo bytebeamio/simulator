@@ -59,15 +59,14 @@ impl Mqtt {
                                     compression: true,
                                 };
                                 let payload = response_array.serialized();
-                                client
-                                    .publish(
-                                        &response_array.topic,
-                                        QoS::AtLeastOnce,
-                                        false,
-                                        payload,
-                                    )
-                                    .await
-                                    .unwrap();
+                                if let Err(e) = client.try_publish(
+                                    &response_array.topic,
+                                    QoS::AtLeastOnce,
+                                    false,
+                                    payload,
+                                ) {
+                                    error!("{client_id}: {e}")
+                                }
                                 sleep(Duration::from_secs(1)).await;
                             }
                         });
