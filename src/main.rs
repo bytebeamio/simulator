@@ -194,8 +194,8 @@ async fn push_data(
             sleep_until(deadline).await;
 
             let elapsed = deadline.elapsed();
-            if elapsed > Duration::from_secs(1) {
-                warn!("Time waited beyond elapsed: {}s", elapsed.as_secs())
+            if elapsed > Duration::from_millis(500) {
+                warn!("Waited longer than expected to generate {stream} for {client_id}");
             }
         }
         last_time = Some(rec.timestamp());
@@ -358,8 +358,14 @@ async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical
 
     let mut sequence = 0;
     let mut interval = interval(Duration::from_secs(10));
+
     loop {
+        let start = Instant::now();
         interval.tick().await;
+        let elapsed = start.elapsed();
+        if elapsed > Duration::from_millis(1500) {
+            warn!("Waited longer than expected to generate device shadow for {client_id}");
+        }
         let data_array = PayloadArray {
             topic: format!(
                 "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
