@@ -57,12 +57,13 @@ async fn push_data(
                 start.take();
             }
 
-            let rec: &Box<dyn Type> = match iter.next() {
-                Some(r) => r,
-                _ => {
-                    iter = data.get_random(stream, &mut rng).iter();
+            let Some(rec) = iter.next() else {
+                iter = data.get_random(stream, &mut rng).iter();
+                if data_array.points.is_empty() {
                     continue;
                 }
+
+                break data_array.take();
             };
 
             if let Some((_, ts)) = start {
@@ -99,12 +100,19 @@ async fn push_data(
             }
         }
 
-        if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, push.serialized()) {
-            unsafe {
-                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+        let client = client.clone();
+        let topic = topic.clone();
+        spawn(async move {
+            if let Err(e) = client
+                .publish(&topic, QoS::AtMostOnce, false, push.serialized())
+                .await
+            {
+                unsafe {
+                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+                }
+                error!("{e}; topic={topic}");
             }
-            error!("{e}; topic={topic}");
-        }
+        });
     }
 }
 
