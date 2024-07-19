@@ -142,7 +142,7 @@ async fn push_data(
         'refresh: loop {
             let mut start = None;
             let push = loop {
-                if data_array.points.len() > max_buf_size {
+                if data_array.points.len() >= max_buf_size {
                     break data_array.take();
                 }
 
