@@ -49,10 +49,15 @@ async fn push_data(
 
     loop {
         let mut start = None;
-        let push = loop {
+        let (till, push) = loop {
             if data_array.points.len() > max_buf_size {
-                break data_array.take();
+                break (None, data_array.take());
             }
+
+            if data_array.points.is_empty() {
+                start.take();
+            }
+
             let rec: &Box<dyn Type> = match iter.next() {
                 Some(r) => r,
                 _ => {
@@ -60,18 +65,18 @@ async fn push_data(
                     continue;
                 }
             };
+
             if let Some((init, ts)) = start {
                 let diff: TimeDelta = rec.timestamp() - ts;
                 let duration = diff.abs().to_std().unwrap();
                 if duration > timeout {
                     let push = data_array.take();
                     data_array.points.push(rec.payload(sequence));
-                    sleep_until(init + timeout).await;
-                    break push;
+                    break (Some(init + timeout), push);
                 }
             }
 
-            if data_array.points.is_empty() {
+            if start.is_none() {
                 start = Some((Instant::now(), rec.timestamp()));
             }
 
@@ -79,8 +84,9 @@ async fn push_data(
             sequence += 1;
         };
 
-        if let Some((start, _)) = start {
-            let elapsed = Instant::now() - (start + timeout);
+        if let Some(till) = till {
+            sleep_until(till).await;
+            let elapsed = Instant::now() - till;
             if elapsed > Duration::from_millis(10) {
                 warn!(
                     "Slow batching: {stream} for {client_id}by {}ms",
