@@ -3,13 +3,14 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant as StdInstant},
 };
 
-use chrono::{TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rumqttc::{mqttbytes::QoS, AsyncClient};
+use serde::Serialize;
 use serde_json::json;
 use tokio::{
     spawn,
@@ -22,6 +23,90 @@ use super::data::{DeviceShadow, Historical, Payload, PayloadArray, Type};
 
 static mut DELAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
 static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Serialize, Clone)]
+pub struct StreamMetrics {
+    #[serde(skip_serializing)]
+    pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing)]
+    pub sequence: u32,
+    pub stream: String,
+    pub points: usize,
+    pub batches: u64,
+    pub max_batch_points: usize,
+    #[serde(skip_serializing)]
+    pub batch_start_time: StdInstant,
+    #[serde(skip_serializing)]
+    pub total_latency: u64,
+    pub min_batch_latency: u64,
+    pub max_batch_latency: u64,
+    pub average_batch_latency: u64,
+}
+
+impl StreamMetrics {
+    pub fn new(stream: &str, max_batch_points: usize) -> Self {
+        StreamMetrics {
+            stream: stream.to_owned(),
+            timestamp: Utc::now(),
+            sequence: 1,
+            points: 0,
+            batches: 0,
+            max_batch_points,
+            batch_start_time: StdInstant::now(),
+            total_latency: 0,
+            average_batch_latency: 0,
+            min_batch_latency: 0,
+            max_batch_latency: 0,
+        }
+    }
+
+    pub fn add_point(&mut self) {
+        self.points += 1;
+        if self.points == 1 {
+            self.timestamp = Utc::now();
+        }
+    }
+
+    pub fn add_batch(&mut self) {
+        self.batches += 1;
+
+        let latency = self.batch_start_time.elapsed().as_millis() as u64;
+        self.max_batch_latency = self.max_batch_latency.max(latency);
+        self.min_batch_latency = self.min_batch_latency.min(latency);
+        self.total_latency += latency;
+        self.average_batch_latency = self.total_latency / self.batches;
+    }
+
+    pub fn take(&mut self) -> Self {
+        self.timestamp = Utc::now();
+        self.sequence += 1;
+        let captured = self.clone();
+        self.batches = 0;
+        self.points = 0;
+        self.batches = 0;
+        self.batch_start_time = StdInstant::now();
+        self.total_latency = 0;
+        self.min_batch_latency = 0;
+        self.max_batch_latency = 0;
+        self.average_batch_latency = 0;
+
+        captured
+    }
+}
+
+impl Type for StreamMetrics {
+    fn timestamp(&self) -> DateTime<Utc> {
+        self.timestamp
+    }
+
+    fn payload(&self, _: u32) -> Payload {
+        Payload {
+            sequence: self.sequence,
+            timestamp: self.timestamp,
+            payload: json!(self),
+        }
+    }
+}
 
 async fn push_data(
     client: AsyncClient,
@@ -40,11 +125,14 @@ async fn push_data(
         points: vec![],
         compression,
     };
+    let mut metrics = StreamMetrics::new(stream, max_buf_size);
 
     let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
     if compression {
         topic.push_str("/lz4")
     }
+    let metrics_topic =
+        format!("/tenants/{project_id}/devices/{client_id}/events/uplink_stream_metrics/jsonarray");
 
     loop {
         // Some data streams need not see much data
@@ -84,6 +172,7 @@ async fn push_data(
                     start = Some((Instant::now(), rec.timestamp()));
                 }
 
+                metrics.add_point();
                 sequence %= u32::MAX;
                 sequence += 1;
                 data_array.points.push(rec.payload(sequence));
@@ -106,9 +195,25 @@ async fn push_data(
 
             let client = client.clone();
             let topic = topic.clone();
+            metrics.add_batch();
+            let metrics_topic = metrics_topic.clone();
+            let metrics = PayloadArray {
+                points: vec![metrics.take().payload(0)],
+                compression: false,
+            };
             spawn(async move {
                 if let Err(e) = client
                     .publish(&topic, QoS::AtMostOnce, false, push.serialized())
+                    .await
+                {
+                    unsafe {
+                        FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+                    }
+                    error!("{e}; topic={topic}");
+                }
+
+                if let Err(e) = client
+                    .publish(&metrics_topic, QoS::AtMostOnce, false, metrics.serialized())
                     .await
                 {
                     unsafe {
