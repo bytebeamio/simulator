@@ -3,7 +3,7 @@ use std::{collections::HashMap, env::var, fs::File, io::BufReader, sync::Arc, th
 use log::{error, info};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
 use serde::Deserialize;
-use simulator::single_device;
+use simulator::{push_simulator_metrics, single_device};
 use tokio::{
     runtime::Builder,
     sync::mpsc::{channel, Receiver},
@@ -124,7 +124,7 @@ fn main() {
                     "/tenants/{}/devices/1/events/simulator_data_metrics/jsonarray",
                     mqtt_config.project_id
                 );
-                tasks.spawn(push_mqtt_metrics(topic, client));
+                tasks.spawn(push_simulator_metrics(topic, client));
 
                 while let Some(Err(e)) = tasks.join_next().await {
                     error!("{e}")

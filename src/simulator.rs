@@ -11,7 +11,7 @@ use std::{
 use chrono::{TimeDelta, Utc};
 use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, SeedableRng};
-use rumqttc::v5::{mqttbytes::QoS, AsyncClient};
+use rumqttc::{mqttbytes::QoS, AsyncClient};
 use serde_json::json;
 use tokio::{
     select, spawn,
