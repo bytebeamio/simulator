@@ -32,7 +32,7 @@ use data::{
     RideStatistics, RideSummary, Stop, Type, VehicleLocation, VehicleState, VicRequest,
 };
 use mqtt::Mqtt;
-use serializer::Serializer;
+use serializer::{push_serializer_metrics, Serializer};
 
 #[derive(Debug, Deserialize)]
 struct Auth {
@@ -103,6 +103,43 @@ fn main() {
                 for (client_id, rx) in device_rx_mapping {
                     start_mqtt_connection(&mut tasks, client_id, mqtt_config.clone(), rx).await
                 }
+                let topic = format!(
+                    "/tenants/{}/devices/1/events/simulator_serializer_metrics/jsonarray",
+                    mqtt_config.project_id
+                );
+                let mut opt = MqttOptions::new("simulator", &mqtt_config.broker, mqtt_config.port);
+
+                if let Some(authentication) = &mqtt_config.authentication {
+                    opt.set_transport(rumqttc::Transport::tls_with_config(
+                        rumqttc::TlsConfiguration::Simple {
+                            ca: authentication.ca_certificate.as_bytes().to_vec(),
+                            alpn: None,
+                            client_auth: Some((
+                                authentication.device_certificate.as_bytes().to_vec(),
+                                authentication.device_private_key.as_bytes().to_vec(),
+                            )),
+                        },
+                    ));
+                }
+
+                opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
+                let (client, mut eventloop) = AsyncClient::new(opt, 1);
+                eventloop.network_options.set_connection_timeout(30);
+                // Don't start simulation till first connack
+                loop {
+                    if let Ok(Event::Incoming(Incoming::ConnAck(_))) = eventloop.poll().await {
+                        break;
+                    }
+                }
+
+                let project_id = mqtt_config.project_id.clone();
+                let mut mqtt = Mqtt {
+                    eventloop,
+                    client: client.clone(),
+                };
+                tasks.spawn(async move { mqtt.start(project_id, 1).await });
+
+                tasks.spawn(push_serializer_metrics(topic, client));
 
                 while let Some(Err(e)) = tasks.join_next().await {
                     error!("{e}")
@@ -211,7 +248,7 @@ async fn batch_data(
         }
 
         if let Err(e) = tx.try_send(data_array.take()) {
-            error!("{e}");
+            error!("{e}; topic={topic}");
         }
         data_array.points.clear();
     }

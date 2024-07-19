@@ -84,11 +84,11 @@ impl Historical {
 
 #[derive(Debug, Serialize)]
 pub struct Payload {
-    sequence: u32,
+    pub sequence: u32,
     #[serde(with = "ts_milliseconds")]
-    timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Utc>,
     #[serde(flatten)]
-    payload: Value,
+    pub payload: Value,
 }
 
 pub struct PayloadArray {
