@@ -1,5 +1,4 @@
 use std::{
-    env::current_dir,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -39,9 +38,6 @@ async fn push_data(
         points: vec![],
         compression,
     };
-
-    let mut data_path = current_dir().unwrap();
-    data_path.push(format!("data/{stream}"));
 
     let mut rng = StdRng::from_entropy();
     let mut iter = data.get_random(stream, &mut rng).iter();
