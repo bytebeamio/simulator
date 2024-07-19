@@ -82,6 +82,7 @@ async fn push_data(
 
             sequence %= u32::MAX;
             sequence += 1;
+            data_array.points.push(rec.payload(sequence));
         };
 
         if let Some((init, _)) = start {
