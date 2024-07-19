@@ -9,13 +9,13 @@ use std::{
 };
 
 use chrono::{TimeDelta, Utc};
+use flume::{bounded, Receiver, Sender};
 use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, SeedableRng};
 use rumqttc::{mqttbytes::QoS, AsyncClient};
 use serde_json::json;
 use tokio::{
     select, spawn,
-    sync::mpsc::{channel, Receiver, Sender},
     time::{interval, sleep, sleep_until, Instant, Sleep},
 };
 
@@ -26,7 +26,7 @@ use super::data::{DeviceShadow, Historical, Payload, PayloadArray, Type};
 static mut DELAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 async fn batch_data(
-    mut rx: Receiver<Payload>,
+    rx: Receiver<Payload>,
     tx: Sender<PayloadArray>,
     topic: String,
     max_buf_size: usize,
@@ -42,7 +42,7 @@ async fn batch_data(
     let mut push = None;
     loop {
         select! {
-            Some(payload) = rx.recv() => {
+            Ok(payload) = rx.recv_async() => {
                 if data_array.points.is_empty() {
                     push = Some( Box::pin(sleep(timeout)))
                 }
@@ -91,7 +91,7 @@ async fn push_data(
     let mut iter = data.get_random(stream, &mut rng).iter();
     let mut start = Instant::now();
 
-    let (tx, rx) = channel(1);
+    let (tx, rx) = bounded(0);
     let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
     if compression {
         topic.push_str("/lz4")

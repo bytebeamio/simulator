@@ -1,14 +1,11 @@
 use std::{collections::HashMap, env::var, fs::File, io::BufReader, sync::Arc, thread};
 
+use flume::{bounded, Receiver};
 use log::{error, info};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
 use serde::Deserialize;
 use simulator::{push_simulator_metrics, single_device};
-use tokio::{
-    runtime::Builder,
-    sync::mpsc::{channel, Receiver},
-    task::JoinSet,
-};
+use tokio::{runtime::Builder, task::JoinSet};
 use tracing_subscriber::EnvFilter;
 
 mod data;
@@ -62,7 +59,7 @@ fn main() {
     let mut device_rx_mapping = HashMap::new();
     let mut device_tx_mapping = HashMap::new();
     for id in start_id..=end_id {
-        let (tx, rx) = channel(1);
+        let (tx, rx) = bounded(0);
         device_tx_mapping.insert(id, tx);
         device_rx_mapping.insert(id, rx);
     }

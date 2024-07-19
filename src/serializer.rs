@@ -4,10 +4,11 @@ use std::{
 };
 
 use chrono::Utc;
+use flume::Receiver;
 use log::{debug, error};
 use rumqttc::{AsyncClient, QoS};
 use serde_json::json;
-use tokio::{sync::mpsc::Receiver, time::interval};
+use tokio::time::interval;
 
 use crate::data::{Payload, PayloadArray};
 
@@ -23,7 +24,7 @@ static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 impl Serializer {
     pub async fn start(&mut self, client_id: u32) {
-        while let Some(d) = self.rx.recv().await {
+        while let Ok(d) = self.rx.recv_async().await {
             match self
                 .client
                 .try_publish(d.topic(), QoS::AtLeastOnce, false, d.serialized())
