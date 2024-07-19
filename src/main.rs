@@ -99,8 +99,13 @@ fn main() {
             .build()
             .unwrap()
             .block_on(async {
+                let mut tasks = JoinSet::new();
                 for (client_id, rx) in device_rx_mapping {
-                    start_mqtt_connection(client_id, mqtt_config.clone(), rx).await
+                    start_mqtt_connection(&mut tasks, client_id, mqtt_config.clone(), rx).await
+                }
+
+                while let Some(Err(e)) = tasks.join_next().await {
+                    error!("{e}")
                 }
             })
     });
@@ -128,7 +133,12 @@ fn main() {
         });
 }
 
-async fn start_mqtt_connection(client_id: u32, config: Arc<Config>, rx: Receiver<PayloadArray>) {
+async fn start_mqtt_connection(
+    tasks: &mut JoinSet<()>,
+    client_id: u32,
+    config: Arc<Config>,
+    rx: Receiver<PayloadArray>,
+) {
     let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
 
     if let Some(authentication) = &config.authentication {
@@ -159,10 +169,10 @@ async fn start_mqtt_connection(client_id: u32, config: Arc<Config>, rx: Receiver
         eventloop,
         client: client.clone(),
     };
-    spawn(async move { mqtt.start(project_id, client_id).await });
+    tasks.spawn(async move { mqtt.start(project_id, client_id).await });
 
     let mut serializer = Serializer { rx, client };
-    spawn(async move { serializer.start(client_id).await });
+    tasks.spawn(async move { serializer.start(client_id).await });
 }
 
 async fn batch_data(
