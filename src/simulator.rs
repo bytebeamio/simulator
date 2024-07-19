@@ -221,7 +221,7 @@ pub async fn single_device(
     loop {
         let start = Instant::now();
         interval.tick().await;
-        let elapsed = start.elapsed() - timeout;
+        let elapsed = start.elapsed().saturating_sub(timeout);
         if elapsed > Duration::from_millis(10) {
             warn!(
                 "Slow data generation: device shadow for {client_id} by {}ms",
