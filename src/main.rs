@@ -63,8 +63,9 @@ fn main() {
 
     let mqtt_config = config.clone();
     thread::spawn(move || {
-        Builder::new_current_thread()
-            .enable_all()
+        Builder::new_multi_thread()
+            .worker_threads(4)
+            .thread_name("MQTT Handlers")
             .build()
             .unwrap()
             .block_on(async {
@@ -136,10 +137,11 @@ fn main() {
 
     info!("Data loaded into memory");
 
-    let simulator_cpu_count = num_cpus::get() - 1; // reserve one core for mqtt
+    let simulator_cpu_count = num_cpus::get() - 4; // reserve 4 cores for mqtt
     info!("Starting simulator on {simulator_cpu_count} cpus");
     Builder::new_multi_thread()
         .worker_threads(simulator_cpu_count)
+        .thread_name("Data Generators")
         .enable_all()
         .build()
         .unwrap()
