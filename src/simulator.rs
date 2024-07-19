@@ -9,7 +9,7 @@ use std::{
 };
 
 use chrono::{TimeDelta, Utc};
-use flume::{bounded, Receiver, Sender};
+use flume::{bounded, Receiver};
 use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, SeedableRng};
 use rumqttc::{mqttbytes::QoS, AsyncClient};
@@ -27,14 +27,13 @@ static mut DELAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 async fn batch_data(
     rx: Receiver<Payload>,
-    tx: Sender<PayloadArray>,
+    client: AsyncClient,
     topic: String,
     max_buf_size: usize,
     timeout: Duration,
     compression: bool,
 ) {
     let mut data_array = PayloadArray {
-        topic: topic.to_owned(),
         points: vec![],
         compression,
     };
@@ -63,7 +62,12 @@ async fn batch_data(
             }
         }
 
-        if let Err(e) = tx.try_send(data_array.take()) {
+        if let Err(e) = client.try_publish(
+            &topic,
+            QoS::AtMostOnce,
+            false,
+            data_array.take().serialized(),
+        ) {
             error!("{e}; topic={topic}");
         }
         data_array.points.clear();
@@ -71,7 +75,7 @@ async fn batch_data(
 }
 
 async fn push_data(
-    batch_tx: Sender<PayloadArray>,
+    client: AsyncClient,
     project_id: String,
     client_id: u32,
     stream: &str,
@@ -98,7 +102,7 @@ async fn push_data(
     }
     spawn(batch_data(
         rx,
-        batch_tx,
+        client,
         topic,
         max_buf_size,
         timeout,
@@ -150,13 +154,13 @@ async fn push_data(
 pub async fn single_device(
     client_id: u32,
     config: Arc<Config>,
-    tx: Sender<PayloadArray>,
+    client: AsyncClient,
     data: Arc<Historical>,
 ) {
     info!("Simulating device {client_id}");
 
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "C2C_CAN",
@@ -166,7 +170,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "imu_sensor",
@@ -176,7 +180,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "action_result",
@@ -186,7 +190,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "ride_detail",
@@ -196,7 +200,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "ride_summary",
@@ -206,7 +210,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "ride_statistics",
@@ -216,7 +220,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "stop",
@@ -226,7 +230,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "vehicle_location",
@@ -236,7 +240,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "vehicle_state",
@@ -246,7 +250,7 @@ pub async fn single_device(
         data.clone(),
     ));
     spawn(push_data(
-        tx.clone(),
+        client.clone(),
         config.project_id.clone(),
         client_id,
         "vic_request",
@@ -258,6 +262,10 @@ pub async fn single_device(
 
     let mut sequence = 0;
     let mut interval = interval(Duration::from_secs(10));
+    let topic = format!(
+        "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
+        config.project_id
+    );
 
     loop {
         let start = Instant::now();
@@ -273,15 +281,12 @@ pub async fn single_device(
             }
         }
         let data_array = PayloadArray {
-            topic: format!(
-                "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
-                config.project_id
-            ),
             points: vec![DeviceShadow::default().payload(sequence)],
             compression: false,
         };
         sequence += 1;
-        if let Err(e) = tx.try_send(data_array) {
+        if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
+        {
             error!("{client_id}/device_shadow: {e}");
         }
     }
@@ -296,7 +301,6 @@ pub async fn push_simulator_metrics(topic: String, client: AsyncClient) {
         debug!("delayed: {delayed}");
         sequence += 1;
         let payload = PayloadArray {
-            topic: topic.clone(),
             points: vec![Payload {
                 sequence,
                 timestamp: Utc::now(),

@@ -1,11 +1,14 @@
 use std::{
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
 use chrono::Utc;
 use log::{debug, error};
-use rumqttc::{AsyncClient, Event, EventLoop, Incoming, Publish, QoS};
+use rumqttc::{AsyncClient, Event, EventLoop, Incoming, MqttOptions, Publish, QoS};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::{
@@ -16,7 +19,10 @@ use tokio::{
 static mut SUCCESS_COUNT: AtomicUsize = AtomicUsize::new(0);
 static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-use crate::data::{ActionResponse, Data, Payload, PayloadArray};
+use crate::{
+    data::{ActionResponse, Data, Payload, PayloadArray},
+    Config,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct Action {
@@ -31,6 +37,29 @@ pub struct Mqtt {
 }
 
 impl Mqtt {
+    pub fn new(client_id: u32, config: Arc<Config>) -> Self {
+        let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
+
+        if let Some(authentication) = &config.authentication {
+            opt.set_transport(rumqttc::Transport::tls_with_config(
+                rumqttc::TlsConfiguration::Simple {
+                    ca: authentication.ca_certificate.as_bytes().to_vec(),
+                    alpn: None,
+                    client_auth: Some((
+                        authentication.device_certificate.as_bytes().to_vec(),
+                        authentication.device_private_key.as_bytes().to_vec(),
+                    )),
+                },
+            ));
+        }
+
+        opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
+        let (client, mut eventloop) = AsyncClient::new(opt, 1);
+        eventloop.network_options.set_connection_timeout(30);
+
+        Self { client, eventloop }
+    }
+
     pub async fn start(&mut self, project_id: String, client_id: u32) {
         self.client
             .subscribe(
@@ -52,17 +81,13 @@ impl Mqtt {
                         spawn(async move {
                             for sequence in 1..=10 {
                                 let response_array = PayloadArray {
-                                    topic: topic.clone(),
                                     points: vec![ActionResponse::as_payload(sequence, action_id)],
                                     compression: true,
                                 };
                                 let payload = response_array.serialized();
-                                if let Err(e) = client.try_publish(
-                                    &response_array.topic,
-                                    QoS::AtLeastOnce,
-                                    false,
-                                    payload,
-                                ) {
+                                if let Err(e) =
+                                    client.try_publish(&topic, QoS::AtLeastOnce, false, payload)
+                                {
                                     error!("{client_id}: {e}")
                                 }
                                 sleep(Duration::from_secs(1)).await;
@@ -96,7 +121,6 @@ pub async fn push_mqtt_metrics(topic: String, client: AsyncClient) {
         debug!("failure: {}, success: {}", failure, success);
         sequence += 1;
         let payload = PayloadArray {
-            topic: topic.clone(),
             points: vec![Payload {
                 sequence,
                 timestamp: Utc::now(),

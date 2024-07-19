@@ -20,7 +20,6 @@ pub trait Type: std::fmt::Debug + Send + Sync + 'static {
 }
 
 pub trait Data {
-    fn topic(&self) -> &str;
     fn serialized(&self) -> Vec<u8>;
 }
 
@@ -92,7 +91,6 @@ pub struct Payload {
 }
 
 pub struct PayloadArray {
-    pub topic: String,
     pub points: Vec<Payload>,
     pub compression: bool,
 }
@@ -100,7 +98,6 @@ pub struct PayloadArray {
 impl PayloadArray {
     pub fn take(&mut self) -> Self {
         Self {
-            topic: self.topic.clone(),
             points: std::mem::take(&mut self.points),
             compression: self.compression,
         }
@@ -108,10 +105,6 @@ impl PayloadArray {
 }
 
 impl Data for PayloadArray {
-    fn topic(&self) -> &str {
-        &self.topic
-    }
-
     fn serialized(&self) -> Vec<u8> {
         let serialized = serde_json::to_vec(&self.points).unwrap();
         if self.compression {

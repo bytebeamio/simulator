@@ -1,6 +1,5 @@
 use std::{collections::HashMap, env::var, fs::File, io::BufReader, sync::Arc, thread};
 
-use flume::{bounded, Receiver};
 use log::{error, info};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
 use serde::Deserialize;
@@ -10,15 +9,13 @@ use tracing_subscriber::EnvFilter;
 
 mod data;
 mod mqtt;
-mod serializer;
 mod simulator;
 
 use data::{
-    ActionResult, Can, Data, Historical, Imu, PayloadArray, RideDetail, RideStatistics,
-    RideSummary, Stop, VehicleLocation, VehicleState, VicRequest,
+    ActionResult, Can, Historical, Imu, RideDetail, RideStatistics, RideSummary, Stop,
+    VehicleLocation, VehicleState, VicRequest,
 };
 use mqtt::{push_mqtt_metrics, Mqtt};
-use serializer::{push_serializer_metrics, Serializer};
 
 #[derive(Debug, Deserialize)]
 struct Auth {
@@ -56,12 +53,12 @@ fn main() {
         .parse()
         .unwrap();
 
-    let mut device_rx_mapping = HashMap::new();
-    let mut device_tx_mapping = HashMap::new();
+    let mut device_client_mapping = HashMap::new();
+    let mut device_handler_mapping = HashMap::new();
     for id in start_id..=end_id {
-        let (tx, rx) = bounded(0);
-        device_tx_mapping.insert(id, tx);
-        device_rx_mapping.insert(id, rx);
+        let mqtt = Mqtt::new(id, config.clone());
+        device_client_mapping.insert(id, mqtt.client.clone());
+        device_handler_mapping.insert(id, mqtt);
     }
 
     let mqtt_config = config.clone();
@@ -72,8 +69,8 @@ fn main() {
             .unwrap()
             .block_on(async {
                 let mut tasks = JoinSet::new();
-                for (client_id, rx) in device_rx_mapping {
-                    start_mqtt_connection(&mut tasks, client_id, mqtt_config.clone(), rx).await
+                for (client_id, mqtt) in device_handler_mapping {
+                    start_mqtt_connection(&mut tasks, client_id, mqtt_config.clone(), mqtt).await
                 }
 
                 let mut opt = MqttOptions::new("simulator", &mqtt_config.broker, mqtt_config.port);
@@ -107,11 +104,6 @@ fn main() {
                     client: client.clone(),
                 };
                 tasks.spawn(async move { mqtt.start(project_id, 1).await });
-                let topic = format!(
-                    "/tenants/{}/devices/1/events/simulator_serializer_metrics/jsonarray",
-                    mqtt_config.project_id
-                );
-                tasks.spawn(push_serializer_metrics(topic, client.clone()));
                 let topic = format!(
                     "/tenants/{}/devices/1/events/simulator_mqtt_metrics/jsonarray",
                     mqtt_config.project_id
@@ -153,10 +145,10 @@ fn main() {
         .unwrap()
         .block_on(async {
             let mut tasks: JoinSet<()> = JoinSet::new();
-            for (i, tx) in device_tx_mapping {
+            for (i, client) in device_client_mapping {
                 let config = config.clone();
                 let data = data.clone();
-                tasks.spawn(async move { single_device(i, config, tx, data).await });
+                tasks.spawn(async move { single_device(i, config, client, data).await });
             }
 
             loop {
@@ -171,40 +163,16 @@ async fn start_mqtt_connection(
     tasks: &mut JoinSet<()>,
     client_id: u32,
     config: Arc<Config>,
-    rx: Receiver<PayloadArray>,
+    mut mqtt: Mqtt,
 ) {
-    let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
+    let project_id = config.project_id.clone();
 
-    if let Some(authentication) = &config.authentication {
-        opt.set_transport(rumqttc::Transport::tls_with_config(
-            rumqttc::TlsConfiguration::Simple {
-                ca: authentication.ca_certificate.as_bytes().to_vec(),
-                alpn: None,
-                client_auth: Some((
-                    authentication.device_certificate.as_bytes().to_vec(),
-                    authentication.device_private_key.as_bytes().to_vec(),
-                )),
-            },
-        ));
-    }
-
-    opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
-    let (client, mut eventloop) = AsyncClient::new(opt, 1);
-    eventloop.network_options.set_connection_timeout(30);
     // Don't start simulation till first connack
     loop {
-        if let Ok(Event::Incoming(Incoming::ConnAck(_))) = eventloop.poll().await {
+        if let Ok(Event::Incoming(Incoming::ConnAck(_))) = mqtt.eventloop.poll().await {
             break;
         }
     }
 
-    let project_id = config.project_id.clone();
-    let mut mqtt = Mqtt {
-        eventloop,
-        client: client.clone(),
-    };
     tasks.spawn(async move { mqtt.start(project_id, client_id).await });
-
-    let mut serializer = Serializer { rx, client };
-    tasks.spawn(async move { serializer.start(client_id).await });
 }
