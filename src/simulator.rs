@@ -54,8 +54,8 @@ async fn batch_data(
             _ = &mut push.as_mut().unwrap_or(&mut end) => {
                 let wait = push.take().unwrap();
                 let elapsed = wait.deadline().elapsed();
-                if elapsed > Duration::from_millis(500) {
-                    warn!("Waited {}s longer than expected to batch for {topic}", elapsed.as_secs_f32());
+                if elapsed > Duration::from_millis(10) {
+                    warn!("Slow batching: {topic} by {}ms ", elapsed.as_millis());
                     unsafe {
                         DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
                     }
@@ -128,10 +128,10 @@ async fn push_data(
             sleep_until(deadline).await;
 
             let elapsed = deadline.elapsed();
-            if elapsed > Duration::from_millis(500) {
+            if elapsed > Duration::from_millis(10) {
                 warn!(
-                    "Waited longer than expected to generate {stream} for {client_id}by {}s",
-                    elapsed.as_secs_f32()
+                    "Slow data generation: {stream} for {client_id}by {}ms",
+                    elapsed.as_millis()
                 );
                 unsafe {
                     DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -265,7 +265,8 @@ pub async fn single_device(
     ));
 
     let mut sequence = 0;
-    let mut interval = interval(Duration::from_secs(10));
+    let timeout = Duration::from_secs(10);
+    let mut interval = interval(timeout);
     let topic = format!(
         "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
         config.project_id
@@ -274,11 +275,11 @@ pub async fn single_device(
     loop {
         let start = Instant::now();
         interval.tick().await;
-        let elapsed = start.elapsed();
-        if elapsed > Duration::from_millis(1500) {
+        let elapsed = start.elapsed() - timeout;
+        if elapsed > Duration::from_millis(10) {
             warn!(
-                "Waited longer than expected to generate device shadow for {client_id} by {}s",
-                elapsed.as_secs_f32()
+                "Slow data generation: device shadow for {client_id} by {}ms",
+                elapsed.as_millis()
             );
             unsafe {
                 DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
