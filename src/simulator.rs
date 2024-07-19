@@ -33,13 +33,13 @@ async fn push_data(
     compression: bool,
     data: Arc<Historical>,
     mut rng: StdRng,
+    (refresh_low, refresh_high): (u64, u64),
 ) {
     let mut sequence = 0;
     let mut data_array = PayloadArray {
         points: vec![],
         compression,
     };
-    let mut iter = data.get_random(stream, &mut rng).iter();
 
     let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
     if compression {
@@ -47,72 +47,78 @@ async fn push_data(
     }
 
     loop {
-        let mut start = None;
-        let push = loop {
-            if data_array.points.len() > max_buf_size {
-                break data_array.take();
-            }
-
-            if data_array.points.is_empty() {
-                start.take();
-            }
-
-            let Some(rec) = iter.next() else {
-                iter = data.get_random(stream, &mut rng).iter();
-                if data_array.points.is_empty() {
-                    continue;
+        // Some data streams need not see much data
+        let refresh_time = Duration::from_secs(rng.gen_range(refresh_low..refresh_high));
+        sleep(refresh_time).await;
+        let mut iter = data.get_random(stream, &mut rng).iter();
+        'refresh: loop {
+            let mut start = None;
+            let push = loop {
+                if data_array.points.len() > max_buf_size {
+                    break data_array.take();
                 }
 
-                break data_array.take();
+                if data_array.points.is_empty() {
+                    start.take();
+                }
+
+                let Some(rec) = iter.next() else {
+                    if data_array.points.is_empty() {
+                        break 'refresh;
+                    }
+
+                    break data_array.take();
+                };
+
+                if let Some((_, ts)) = start {
+                    let diff: TimeDelta = rec.timestamp() - ts;
+                    let duration = diff.abs().to_std().unwrap();
+                    if duration > timeout {
+                        let push = data_array.take();
+                        data_array.points.push(rec.payload(sequence));
+                        break push;
+                    }
+                }
+
+                if start.is_none() {
+                    start = Some((Instant::now(), rec.timestamp()));
+                }
+
+                sequence %= u32::MAX;
+                sequence += 1;
+                data_array.points.push(rec.payload(sequence));
             };
 
-            if let Some((_, ts)) = start {
-                let diff: TimeDelta = rec.timestamp() - ts;
-                let duration = diff.abs().to_std().unwrap();
-                if duration > timeout {
-                    let push = data_array.take();
-                    data_array.points.push(rec.payload(sequence));
-                    break push;
+            if let Some((init, _)) = start {
+                let till = init + timeout;
+                sleep_until(till).await;
+                let elapsed = Instant::now() - till;
+                if elapsed > Duration::from_millis(10) {
+                    warn!(
+                        "Slow batching: {stream} for {client_id}by {}ms",
+                        elapsed.as_millis()
+                    );
+                    unsafe {
+                        DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
+                    }
                 }
             }
 
-            if start.is_none() {
-                start = Some((Instant::now(), rec.timestamp()));
-            }
-
-            sequence %= u32::MAX;
-            sequence += 1;
-            data_array.points.push(rec.payload(sequence));
-        };
-
-        if let Some((init, _)) = start {
-            let till = init + timeout;
-            sleep_until(till).await;
-            let elapsed = Instant::now() - till;
-            if elapsed > Duration::from_millis(10) {
-                warn!(
-                    "Slow batching: {stream} for {client_id}by {}ms",
-                    elapsed.as_millis()
-                );
-                unsafe {
-                    DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
+            let client = client.clone();
+            let topic = topic.clone();
+            spawn(async move {
+                if let Err(e) = client
+                    .publish(&topic, QoS::AtMostOnce, false, push.serialized())
+                    .await
+                {
+                    unsafe {
+                        FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+                    }
+                    error!("{e}; topic={topic}");
                 }
-            }
+            });
         }
-
-        let client = client.clone();
-        let topic = topic.clone();
-        spawn(async move {
-            if let Err(e) = client
-                .publish(&topic, QoS::AtMostOnce, false, push.serialized())
-                .await
-            {
-                unsafe {
-                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-                }
-                error!("{e}; topic={topic}");
-            }
-        });
+        info!("refreshing {stream}");
     }
 }
 
@@ -138,6 +144,7 @@ pub async fn single_device(
         true,
         data.clone(),
         rng.clone(),
+        (0, 1),
     ));
     spawn(push_data(
         client.clone(),
@@ -149,17 +156,19 @@ pub async fn single_device(
         true,
         data.clone(),
         rng.clone(),
+        (0, 10),
     ));
     spawn(push_data(
         client.clone(),
         config.project_id.clone(),
         client_id,
         "action_result",
-        1,
+        5,
         Duration::from_secs(1),
         false,
         data.clone(),
         rng.clone(),
+        (10, 1_000),
     ));
     spawn(push_data(
         client.clone(),
@@ -171,6 +180,7 @@ pub async fn single_device(
         false,
         data.clone(),
         rng.clone(),
+        (10_000, 10_000_000),
     ));
     spawn(push_data(
         client.clone(),
@@ -182,6 +192,7 @@ pub async fn single_device(
         false,
         data.clone(),
         rng.clone(),
+        (10_000, 10_000_000),
     ));
     spawn(push_data(
         client.clone(),
@@ -193,6 +204,7 @@ pub async fn single_device(
         false,
         data.clone(),
         rng.clone(),
+        (10_000, 10_000_000),
     ));
     spawn(push_data(
         client.clone(),
@@ -204,6 +216,7 @@ pub async fn single_device(
         false,
         data.clone(),
         rng.clone(),
+        (100, 10_000),
     ));
     spawn(push_data(
         client.clone(),
@@ -215,6 +228,7 @@ pub async fn single_device(
         false,
         data.clone(),
         rng.clone(),
+        (100, 10_000),
     ));
     spawn(push_data(
         client.clone(),
@@ -226,6 +240,7 @@ pub async fn single_device(
         false,
         data.clone(),
         rng.clone(),
+        (100, 10_000),
     ));
     spawn(push_data(
         client.clone(),
@@ -237,6 +252,7 @@ pub async fn single_device(
         false,
         data.clone(),
         rng.clone(),
+        (100, 10_000),
     ));
 
     let mut sequence = 0;
