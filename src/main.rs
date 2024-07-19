@@ -1,9 +1,11 @@
 use std::{
+    collections::HashMap,
     env::{current_dir, var},
     fs::File,
     io::BufReader,
     pin::Pin,
     sync::Arc,
+    thread,
     time::Duration,
 };
 
@@ -83,19 +85,39 @@ fn main() {
 
     info!("Data loaded into memory");
 
-    let cpu_count = num_cpus::get();
-    info!("Starting simulator on {cpu_count} cpus");
+    let mut device_rx_mapping = HashMap::new();
+    let mut device_tx_mapping = HashMap::new();
+    for id in start_id..=end_id {
+        let (tx, rx) = channel(1);
+        device_tx_mapping.insert(id, tx);
+        device_rx_mapping.insert(id, rx);
+    }
+
+    let mqtt_config = config.clone();
+    thread::spawn(move || {
+        Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                for (client_id, rx) in device_rx_mapping {
+                    start_mqtt_connection(client_id, mqtt_config.clone(), rx).await
+                }
+            })
+    });
+
+    let simulator_cpu_count = num_cpus::get() - 1; // reserve one core for mqtt
+    info!("Starting simulator on {simulator_cpu_count} cpus");
     Builder::new_multi_thread()
-        .worker_threads(cpu_count)
+        .worker_threads(simulator_cpu_count)
         .enable_all()
         .build()
         .unwrap()
         .block_on(async {
             let mut tasks: JoinSet<()> = JoinSet::new();
-            for i in start_id..=end_id {
+            for (i, tx) in device_tx_mapping {
                 let config = config.clone();
                 let data = data.clone();
-                tasks.spawn(async move { single_device(i, config, data).await });
+                tasks.spawn(async move { single_device(i, config, tx, data).await });
             }
 
             loop {
@@ -104,6 +126,43 @@ fn main() {
                 }
             }
         });
+}
+
+async fn start_mqtt_connection(client_id: u32, config: Arc<Config>, rx: Receiver<PayloadArray>) {
+    let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
+
+    if let Some(authentication) = &config.authentication {
+        opt.set_transport(rumqttc::Transport::tls_with_config(
+            rumqttc::TlsConfiguration::Simple {
+                ca: authentication.ca_certificate.as_bytes().to_vec(),
+                alpn: None,
+                client_auth: Some((
+                    authentication.device_certificate.as_bytes().to_vec(),
+                    authentication.device_private_key.as_bytes().to_vec(),
+                )),
+            },
+        ));
+    }
+
+    opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
+    let (client, mut eventloop) = AsyncClient::new(opt, 1);
+    eventloop.network_options.set_connection_timeout(30);
+    // Don't start simulation till first connack
+    loop {
+        if let Ok(Event::Incoming(Incoming::ConnAck(_))) = eventloop.poll().await {
+            break;
+        }
+    }
+
+    let project_id = config.project_id.clone();
+    let mut mqtt = Mqtt {
+        eventloop,
+        client: client.clone(),
+    };
+    spawn(async move { mqtt.start(project_id, client_id).await });
+
+    let mut serializer = Serializer { rx, client };
+    spawn(async move { serializer.start(client_id).await });
 }
 
 async fn batch_data(
@@ -132,7 +191,7 @@ async fn batch_data(
                     continue
                 }
             }
-            _ = &mut push.as_mut().map(|a| a).unwrap_or(&mut end) => {
+            _ = &mut push.as_mut().unwrap_or(&mut end) => {
                 let wait = push.take().unwrap();
                 let elapsed = wait.deadline().elapsed();
                 if elapsed > Duration::from_millis(500) {
@@ -222,45 +281,13 @@ async fn push_data(
     }
 }
 
-async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical>) {
-    info!("Starting device {client_id}");
-    let (tx, rx) = channel(1);
-    let mut opt = MqttOptions::new(client_id.to_string(), &config.broker, config.port);
-
-    if let Some(authentication) = &config.authentication {
-        opt.set_transport(rumqttc::Transport::tls_with_config(
-            rumqttc::TlsConfiguration::Simple {
-                ca: authentication.ca_certificate.as_bytes().to_vec(),
-                alpn: None,
-                client_auth: Some((
-                    authentication.device_certificate.as_bytes().to_vec(),
-                    authentication.device_private_key.as_bytes().to_vec(),
-                )),
-            },
-        ));
-    }
-
-    opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
-    let (client, mut eventloop) = AsyncClient::new(opt, 1);
-    eventloop.network_options.set_connection_timeout(30);
-    // Don't start simulation till first connack
-    loop {
-        if let Ok(Event::Incoming(Incoming::ConnAck(_))) = eventloop.poll().await {
-            break;
-        }
-    }
-
-    let mut serializer = Serializer {
-        rx,
-        client: client.clone(),
-    };
-    spawn(async move { serializer.start(client_id).await });
-    let project_id = config.project_id.clone();
-    spawn(async move {
-        Mqtt { eventloop, client }
-            .start(project_id, client_id)
-            .await
-    });
+async fn single_device(
+    client_id: u32,
+    config: Arc<Config>,
+    tx: Sender<PayloadArray>,
+    data: Arc<Historical>,
+) {
+    info!("Simulating device {client_id}");
 
     spawn(push_data(
         tx.clone(),
