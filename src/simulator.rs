@@ -49,9 +49,9 @@ async fn push_data(
 
     loop {
         let mut start = None;
-        let (till, push) = loop {
+        let push = loop {
             if data_array.points.len() > max_buf_size {
-                break (None, data_array.take());
+                break data_array.take();
             }
 
             if data_array.points.is_empty() {
@@ -66,13 +66,13 @@ async fn push_data(
                 }
             };
 
-            if let Some((init, ts)) = start {
+            if let Some((_, ts)) = start {
                 let diff: TimeDelta = rec.timestamp() - ts;
                 let duration = diff.abs().to_std().unwrap();
                 if duration > timeout {
                     let push = data_array.take();
                     data_array.points.push(rec.payload(sequence));
-                    break (Some(init + timeout), push);
+                    break push;
                 }
             }
 
@@ -84,7 +84,8 @@ async fn push_data(
             sequence += 1;
         };
 
-        if let Some(till) = till {
+        if let Some((init, _)) = start {
+            let till = init + timeout;
             sleep_until(till).await;
             let elapsed = Instant::now() - till;
             if elapsed > Duration::from_millis(10) {
