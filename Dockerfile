@@ -15,7 +15,7 @@ RUN cp target/release/simulator /usr/share/bytebeam/simulator/bin/
 
 FROM alpine:latest
 
-RUN apk add runit bash curl coreutils aws-cli
+RUN apk add runit bash curl coreutils aws-cli htop
 
 RUN mkdir -p /usr/share/bytebeam/simulator
 COPY --from=builder /usr/share/bytebeam/simulator/bin /usr/bin
