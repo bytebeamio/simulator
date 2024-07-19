@@ -70,21 +70,6 @@ fn main() {
         .parse()
         .unwrap();
 
-    let mut historical = Historical::new();
-    historical.load::<Can>("C2C_CAN");
-    historical.load::<Imu>("imu_sensor");
-    historical.load::<ActionResult>("action_result");
-    historical.load::<RideDetail>("ride_detail");
-    historical.load::<RideSummary>("ride_summary");
-    historical.load::<RideStatistics>("ride_statistics");
-    historical.load::<Stop>("stop");
-    historical.load::<VehicleLocation>("vehicle_location");
-    historical.load::<VehicleState>("vehicle_state");
-    historical.load::<VicRequest>("vic_request");
-    let data = Arc::new(historical);
-
-    info!("Data loaded into memory");
-
     let mut device_rx_mapping = HashMap::new();
     let mut device_tx_mapping = HashMap::new();
     for id in start_id..=end_id {
@@ -146,6 +131,21 @@ fn main() {
                 }
             })
     });
+
+    let mut historical = Historical::new();
+    historical.load::<Can>("C2C_CAN");
+    historical.load::<Imu>("imu_sensor");
+    historical.load::<ActionResult>("action_result");
+    historical.load::<RideDetail>("ride_detail");
+    historical.load::<RideSummary>("ride_summary");
+    historical.load::<RideStatistics>("ride_statistics");
+    historical.load::<Stop>("stop");
+    historical.load::<VehicleLocation>("vehicle_location");
+    historical.load::<VehicleState>("vehicle_state");
+    historical.load::<VicRequest>("vic_request");
+    let data = Arc::new(historical);
+
+    info!("Data loaded into memory");
 
     let simulator_cpu_count = num_cpus::get() - 1; // reserve one core for mqtt
     info!("Starting simulator on {simulator_cpu_count} cpus");
