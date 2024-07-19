@@ -55,7 +55,7 @@ impl Mqtt {
         }
 
         opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
-        let (client, mut eventloop) = AsyncClient::new(opt, 1);
+        let (client, mut eventloop) = AsyncClient::new(opt, 5);
         eventloop.network_options.set_connection_timeout(30);
 
         Self { client, eventloop }
