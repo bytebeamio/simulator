@@ -80,7 +80,7 @@ fn main() {
 
     let mqtt_config = config.clone();
     thread::spawn(move || {
-        Builder::new_current_thread()
+        Builder::new_current_thread().enable_all()
             .build()
             .unwrap()
             .block_on(async {
