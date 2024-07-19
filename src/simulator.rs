@@ -24,6 +24,7 @@ use crate::{data::Data, Config};
 use super::data::{DeviceShadow, Historical, Payload, PayloadArray, Type};
 
 static mut DELAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
+static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 async fn batch_data(
     rx: Receiver<Payload>,
@@ -68,6 +69,9 @@ async fn batch_data(
             false,
             data_array.take().serialized(),
         ) {
+            unsafe {
+                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+            }
             error!("{e}; topic={topic}");
         }
         data_array.points.clear();
@@ -287,6 +291,9 @@ pub async fn single_device(
         sequence += 1;
         if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
         {
+            unsafe {
+                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+            }
             error!("{client_id}/device_shadow: {e}");
         }
     }
@@ -298,6 +305,7 @@ pub async fn push_simulator_metrics(topic: String, client: AsyncClient) {
     loop {
         interval.tick().await;
         let delayed = unsafe { DELAYED_COUNT.swap(0, Ordering::Acquire) };
+        let failure = unsafe { FAILURE_COUNT.swap(0, Ordering::Acquire) };
         debug!("delayed: {delayed}");
         sequence += 1;
         let payload = PayloadArray {
@@ -305,7 +313,8 @@ pub async fn push_simulator_metrics(topic: String, client: AsyncClient) {
                 sequence,
                 timestamp: Utc::now(),
                 payload: json!({
-                    "delayed": delayed
+                    "delayed": delayed,
+                    "publish_failure": failure
                 }),
             }],
             compression: false,
