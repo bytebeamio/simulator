@@ -3,18 +3,20 @@ use std::{
     time::Duration,
 };
 
+use chrono::Utc;
 use log::{debug, error};
 use rumqttc::{AsyncClient, Event, EventLoop, Incoming, Publish, QoS};
 use serde::Deserialize;
+use serde_json::json;
 use tokio::{
     spawn,
-    time::{sleep, Instant},
+    time::{interval, sleep},
 };
 
 static mut SUCCESS_COUNT: AtomicUsize = AtomicUsize::new(0);
 static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-use crate::data::{ActionResponse, Data, PayloadArray};
+use crate::data::{ActionResponse, Data, Payload, PayloadArray};
 
 #[derive(Debug, Deserialize)]
 pub struct Action {
@@ -30,9 +32,6 @@ pub struct Mqtt {
 
 impl Mqtt {
     pub async fn start(&mut self, project_id: String, client_id: u32) {
-        let mut success = 0;
-        let mut failure = 0;
-
         self.client
             .subscribe(
                 format!("/tenants/demo/devices/{client_id}/actions"),
@@ -42,7 +41,6 @@ impl Mqtt {
             .unwrap();
 
         loop {
-            let start = Instant::now();
             match self.eventloop.poll().await {
                 Ok(m) => {
                     if let Event::Incoming(Incoming::Publish(Publish { payload, .. })) = &m {
@@ -75,27 +73,45 @@ impl Mqtt {
                     unsafe {
                         SUCCESS_COUNT.fetch_add(1, Ordering::SeqCst);
                     }
-                    success += 1;
                 }
                 Err(e) => {
                     error!("client_id: {client_id}; {e}");
                     unsafe {
                         FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
                     }
-                    failure += 1;
                     sleep(Duration::from_secs(10)).await;
                 }
             };
-            debug!(
-                "client_id: {client_id}; timespent: {}; success = {success}; failure = {failure}; total successes = {}; total failures = {}",
-                start.elapsed().as_secs_f64(),
-                unsafe {
-                    SUCCESS_COUNT.load(Ordering::SeqCst)
-                },
-                unsafe {
-                    FAILURE_COUNT.load(Ordering::SeqCst)
-                }
-            );
         }
+    }
+}
+
+pub async fn push_mqtt_metrics(topic: String, client: AsyncClient) {
+    let mut interval = interval(Duration::from_secs(10));
+    let mut sequence = 0;
+    loop {
+        interval.tick().await;
+        let failure = unsafe { FAILURE_COUNT.swap(0, Ordering::Acquire) };
+        let success = unsafe { SUCCESS_COUNT.swap(0, Ordering::Acquire) };
+        debug!("failure: {}, success: {}", failure, success);
+        sequence += 1;
+        let payload = PayloadArray {
+            topic: topic.clone(),
+            points: vec![Payload {
+                sequence,
+                timestamp: Utc::now(),
+                payload: json!({
+                    "success": success,
+                    "failure": failure
+                }),
+            }],
+            compression: false,
+        };
+        if let Err(e) = client
+            .publish(&topic, QoS::AtLeastOnce, false, payload.serialized())
+            .await
+        {
+            error!("{e}; topic={topic}")
+        };
     }
 }

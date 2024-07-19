@@ -31,7 +31,7 @@ use data::{
     ActionResult, Can, Data, DeviceShadow, Historical, Imu, Payload, PayloadArray, RideDetail,
     RideStatistics, RideSummary, Stop, Type, VehicleLocation, VehicleState, VicRequest,
 };
-use mqtt::Mqtt;
+use mqtt::{push_mqtt_metrics, Mqtt};
 use serializer::{push_serializer_metrics, Serializer};
 
 #[derive(Debug, Deserialize)]
@@ -80,7 +80,8 @@ fn main() {
 
     let mqtt_config = config.clone();
     thread::spawn(move || {
-        Builder::new_current_thread().enable_all()
+        Builder::new_current_thread()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async {
@@ -88,10 +89,7 @@ fn main() {
                 for (client_id, rx) in device_rx_mapping {
                     start_mqtt_connection(&mut tasks, client_id, mqtt_config.clone(), rx).await
                 }
-                let topic = format!(
-                    "/tenants/{}/devices/1/events/simulator_serializer_metrics/jsonarray",
-                    mqtt_config.project_id
-                );
+
                 let mut opt = MqttOptions::new("simulator", &mqtt_config.broker, mqtt_config.port);
 
                 if let Some(authentication) = &mqtt_config.authentication {
@@ -123,8 +121,16 @@ fn main() {
                     client: client.clone(),
                 };
                 tasks.spawn(async move { mqtt.start(project_id, 1).await });
-
-                tasks.spawn(push_serializer_metrics(topic, client));
+                let topic = format!(
+                    "/tenants/{}/devices/1/events/simulator_serializer_metrics/jsonarray",
+                    mqtt_config.project_id
+                );
+                tasks.spawn(push_serializer_metrics(topic, client.clone()));
+                let topic = format!(
+                    "/tenants/{}/devices/1/events/simulator_mqtt_metrics/jsonarray",
+                    mqtt_config.project_id
+                );
+                tasks.spawn(push_mqtt_metrics(topic, client));
 
                 while let Some(Err(e)) = tasks.join_next().await {
                     error!("{e}")
