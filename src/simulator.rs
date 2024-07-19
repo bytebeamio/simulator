@@ -124,17 +124,19 @@ async fn push_data(
         if let Some(start) = last_time {
             let diff: TimeDelta = rec.timestamp() - start;
             let duration = diff.abs().to_std().unwrap();
-            let deadline = Instant::now() + duration;
-            sleep_until(deadline).await;
+            if duration != Duration::ZERO {
+                let deadline = Instant::now() + duration;
+                sleep_until(deadline).await;
 
-            let elapsed = deadline.elapsed();
-            if elapsed > Duration::from_millis(10) {
-                warn!(
-                    "Slow data generation: {stream} for {client_id}by {}ms",
-                    elapsed.as_millis()
-                );
-                unsafe {
-                    DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
+                let elapsed = deadline.elapsed();
+                if elapsed > Duration::from_millis(10) {
+                    warn!(
+                        "Slow data generation: {stream} for {client_id}by {}ms",
+                        elapsed.as_millis()
+                    );
+                    unsafe {
+                        DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
+                    }
                 }
             }
         }
