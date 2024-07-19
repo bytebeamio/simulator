@@ -66,6 +66,7 @@ fn main() {
         Builder::new_multi_thread()
             .worker_threads(4)
             .thread_name("MQTT Handlers")
+            .enable_all()
             .build()
             .unwrap()
             .block_on(async {
