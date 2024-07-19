@@ -1,6 +1,5 @@
 use std::{
     env::current_dir,
-    pin::Pin,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -9,14 +8,13 @@ use std::{
 };
 
 use chrono::{TimeDelta, Utc};
-use flume::{bounded, Receiver};
 use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, SeedableRng};
 use rumqttc::{mqttbytes::QoS, AsyncClient};
 use serde_json::json;
 use tokio::{
-    select, spawn,
-    time::{interval, sleep, sleep_until, Instant, Sleep},
+    spawn,
+    time::{interval, sleep_until, Instant},
 };
 
 use crate::{data::Data, Config};
@@ -25,58 +23,6 @@ use super::data::{DeviceShadow, Historical, Payload, PayloadArray, Type};
 
 static mut DELAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
 static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-async fn batch_data(
-    rx: Receiver<Payload>,
-    client: AsyncClient,
-    topic: String,
-    max_buf_size: usize,
-    timeout: Duration,
-    compression: bool,
-) {
-    let mut data_array = PayloadArray {
-        points: vec![],
-        compression,
-    };
-    let mut end: Pin<Box<Sleep>> = Box::pin(sleep(Duration::from_secs(u64::MAX)));
-    let mut push = None;
-    loop {
-        select! {
-            Ok(payload) = rx.recv_async() => {
-                if data_array.points.is_empty() {
-                    push = Some( Box::pin(sleep(timeout)))
-                }
-                data_array.points.push(payload);
-                if data_array.points.len() < max_buf_size {
-                    continue
-                }
-            }
-            _ = &mut push.as_mut().unwrap_or(&mut end) => {
-                let wait = push.take().unwrap();
-                let elapsed = wait.deadline().elapsed();
-                if elapsed > Duration::from_millis(10) {
-                    warn!("Slow batching: {topic} by {}ms ", elapsed.as_millis());
-                    unsafe {
-                        DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
-                    }
-                }
-            }
-        }
-
-        if let Err(e) = client.try_publish(
-            &topic,
-            QoS::AtMostOnce,
-            false,
-            data_array.take().serialized(),
-        ) {
-            unsafe {
-                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-            }
-            error!("{e}; topic={topic}");
-        }
-        data_array.points.clear();
-    }
-}
 
 async fn push_data(
     client: AsyncClient,
@@ -88,72 +34,74 @@ async fn push_data(
     compression: bool,
     data: Arc<Historical>,
 ) {
-    let mut last_time = None;
     let mut sequence = 0;
-    let mut total_time = 0.0;
+    let mut data_array = PayloadArray {
+        points: vec![],
+        compression,
+    };
 
     let mut data_path = current_dir().unwrap();
     data_path.push(format!("data/{stream}"));
 
     let mut rng = StdRng::from_entropy();
     let mut iter = data.get_random(stream, &mut rng).iter();
-    let mut start = Instant::now();
 
-    let (tx, rx) = bounded(0);
     let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
     if compression {
         topic.push_str("/lz4")
     }
-    spawn(batch_data(
-        rx,
-        client,
-        topic,
-        max_buf_size,
-        timeout,
-        compression,
-    ));
 
     loop {
-        let rec: &Box<dyn Type> = match iter.next() {
-            Some(r) => r,
-            _ => {
-                iter = data.get_random(stream, &mut rng).iter();
-                continue;
+        let mut start = None;
+        let push = loop {
+            if data_array.points.len() > max_buf_size {
+                break data_array.take();
             }
-        };
-        if let Some(start) = last_time {
-            let diff: TimeDelta = rec.timestamp() - start;
-            let duration = diff.abs().to_std().unwrap();
-            if duration != Duration::ZERO {
-                let deadline = Instant::now() + duration;
-                sleep_until(deadline).await;
+            let rec: &Box<dyn Type> = match iter.next() {
+                Some(r) => r,
+                _ => {
+                    iter = data.get_random(stream, &mut rng).iter();
+                    continue;
+                }
+            };
+            if let Some((init, ts)) = start {
+                let diff: TimeDelta = rec.timestamp() - ts;
+                let duration = diff.abs().to_std().unwrap();
+                if duration > timeout {
+                    let push = data_array.take();
+                    data_array.points.push(rec.payload(sequence));
+                    sleep_until(init + timeout).await;
+                    break push;
+                }
+            }
 
-                let elapsed = deadline.elapsed();
-                if elapsed > Duration::from_millis(10) {
-                    warn!(
-                        "Slow data generation: {stream} for {client_id}by {}ms",
-                        elapsed.as_millis()
-                    );
-                    unsafe {
-                        DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
-                    }
+            if data_array.points.is_empty() {
+                start = Some((Instant::now(), rec.timestamp()));
+            }
+
+            sequence %= u32::MAX;
+            sequence += 1;
+        };
+
+        if let Some((start, _)) = start {
+            let elapsed = Instant::now() - (start + timeout);
+            if elapsed > Duration::from_millis(10) {
+                warn!(
+                    "Slow batching: {stream} for {client_id}by {}ms",
+                    elapsed.as_millis()
+                );
+                unsafe {
+                    DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
                 }
             }
         }
-        last_time = Some(rec.timestamp());
 
-        sequence %= u32::MAX;
-        sequence += 1;
-        if let Err(e) = tx.try_send(rec.payload(sequence)) {
-            error!("{e}")
+        if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, push.serialized()) {
+            unsafe {
+                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+            }
+            error!("{e}; topic={topic}");
         }
-
-        total_time += start.elapsed().as_secs_f64();
-        debug!(
-            "client_id: {client_id}; Messages: {sequence}; Avg time: {}",
-            total_time / sequence as f64
-        );
-        start = Instant::now();
     }
 }
 
