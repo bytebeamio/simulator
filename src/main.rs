@@ -199,7 +199,10 @@ async fn push_data(
 
             let elapsed = deadline.elapsed();
             if elapsed > Duration::from_millis(500) {
-                warn!("Waited longer than expected to generate {stream} for {client_id}");
+                warn!(
+                    "Waited longer than expected to generate {stream} for {client_id}by {}s",
+                    elapsed.as_secs_f32()
+                );
             }
         }
         last_time = Some(rec.timestamp());
@@ -368,7 +371,10 @@ async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical
         interval.tick().await;
         let elapsed = start.elapsed();
         if elapsed > Duration::from_millis(1500) {
-            warn!("Waited longer than expected to generate device shadow for {client_id}");
+            warn!(
+                "Waited longer than expected to generate device shadow for {client_id} by {}s",
+                elapsed.as_secs_f32()
+            );
         }
         let data_array = PayloadArray {
             topic: format!(
