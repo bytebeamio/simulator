@@ -1,4 +1,14 @@
-use std::{collections::HashMap, env::var, fs::File, io::BufReader, sync::Arc, thread};
+use std::{
+    collections::HashMap,
+    env::var,
+    fs::File,
+    io::BufReader,
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+    thread,
+};
 
 use log::{error, info};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
@@ -65,7 +75,10 @@ fn main() {
     thread::spawn(move || {
         Builder::new_multi_thread()
             .worker_threads(4)
-            .thread_name("MQTT Handlers")
+            .thread_name_fn(|| {
+                static ID: AtomicU8 = AtomicU8::new(0);
+                format!("MQTT Handler {}", ID.fetch_add(1, Ordering::SeqCst))
+            })
             .enable_all()
             .build()
             .unwrap()
@@ -142,7 +155,10 @@ fn main() {
     info!("Starting simulator on {simulator_cpu_count} cpus");
     Builder::new_multi_thread()
         .worker_threads(simulator_cpu_count)
-        .thread_name("Data Generators")
+        .thread_name_fn(|| {
+            static ID: AtomicU8 = AtomicU8::new(0);
+            format!("Data Generator {}", ID.fetch_add(1, Ordering::SeqCst))
+        })
         .enable_all()
         .build()
         .unwrap()
