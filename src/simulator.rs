@@ -8,12 +8,12 @@ use std::{
 
 use chrono::{TimeDelta, Utc};
 use log::{debug, error, info, warn};
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use rumqttc::{mqttbytes::QoS, AsyncClient};
 use serde_json::json;
 use tokio::{
     spawn,
-    time::{interval, sleep_until, Instant},
+    time::{interval, sleep, sleep_until, Instant},
 };
 
 use crate::{data::Data, Config};
@@ -32,14 +32,13 @@ async fn push_data(
     timeout: Duration,
     compression: bool,
     data: Arc<Historical>,
+    mut rng: StdRng,
 ) {
     let mut sequence = 0;
     let mut data_array = PayloadArray {
         points: vec![],
         compression,
     };
-
-    let mut rng = StdRng::from_entropy();
     let mut iter = data.get_random(stream, &mut rng).iter();
 
     let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
@@ -115,6 +114,10 @@ pub async fn single_device(
     client: AsyncClient,
     data: Arc<Historical>,
 ) {
+    let mut rng = StdRng::from_entropy();
+
+    // Wait a few seconds at random to deter waves
+    sleep(Duration::from_secs(rng.gen::<u8>() as u64)).await;
     info!("Simulating device {client_id}");
 
     spawn(push_data(
@@ -126,6 +129,7 @@ pub async fn single_device(
         Duration::from_secs(60),
         true,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -136,6 +140,7 @@ pub async fn single_device(
         Duration::from_secs(60),
         true,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -146,6 +151,7 @@ pub async fn single_device(
         Duration::from_secs(1),
         false,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -156,6 +162,7 @@ pub async fn single_device(
         Duration::from_secs(1),
         false,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -166,6 +173,7 @@ pub async fn single_device(
         Duration::from_secs(1),
         false,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -176,6 +184,7 @@ pub async fn single_device(
         Duration::from_secs(1),
         false,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -186,6 +195,7 @@ pub async fn single_device(
         Duration::from_secs(10),
         false,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -196,6 +206,7 @@ pub async fn single_device(
         Duration::from_secs(10),
         false,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -206,6 +217,7 @@ pub async fn single_device(
         Duration::from_secs(1),
         false,
         data.clone(),
+        rng.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -216,6 +228,7 @@ pub async fn single_device(
         Duration::from_secs(1),
         false,
         data.clone(),
+        rng.clone(),
     ));
 
     let mut sequence = 0;
