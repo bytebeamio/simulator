@@ -47,8 +47,8 @@ pub async fn push_serializer_metrics(topic: String, client: AsyncClient) {
     let mut sequence = 0;
     loop {
         interval.tick().await;
-        let failure = unsafe { FAILURE_COUNT.load(Ordering::Acquire) };
-        let success = unsafe { SUCCESS_COUNT.load(Ordering::Acquire) };
+        let failure = unsafe { FAILURE_COUNT.swap(0, Ordering::Acquire) };
+        let success = unsafe { SUCCESS_COUNT.swap(0, Ordering::Acquire) };
         debug!("failure: {}, success: {}", failure, success);
         sequence += 1;
         let payload = PayloadArray {
