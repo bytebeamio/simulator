@@ -115,7 +115,7 @@ async fn batch_data(
     compression: bool,
 ) {
     let mut data_array = PayloadArray {
-        topic,
+        topic: topic.to_owned(),
         points: vec![],
         compression,
     };
@@ -133,7 +133,11 @@ async fn batch_data(
                 }
             }
             _ = &mut push.as_mut().map(|a| a).unwrap_or(&mut end) => {
-                push.take();
+                let wait = push.take().unwrap();
+                let elapsed = wait.deadline().elapsed();
+                if elapsed > Duration::from_millis(500) {
+                    warn!("Waited {}s longer than expected to batch for {topic}", elapsed.as_secs_f32());
+                }
             }
         }
 
