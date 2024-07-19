@@ -375,8 +375,8 @@ async fn single_device(client_id: u32, config: Arc<Config>, data: Arc<Historical
             compression: false,
         };
         sequence += 1;
-        if let Err(e) = tx.send(data_array).await {
-            error!("{e}");
+        if let Err(e) = tx.try_send(data_array) {
+            error!("{client_id}/device_shadow: {e}");
         }
     }
 }
