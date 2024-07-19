@@ -8,7 +8,7 @@ use std::{
 
 use chrono::Utc;
 use log::{debug, error};
-use rumqttc::{AsyncClient, Event, EventLoop, Incoming, MqttOptions, Publish, QoS};
+use rumqttc::{AsyncClient, Event, EventLoop, Incoming, MqttOptions, Outgoing, Publish, QoS};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::{
@@ -16,8 +16,9 @@ use tokio::{
     time::{interval, sleep},
 };
 
-static mut SUCCESS_COUNT: AtomicUsize = AtomicUsize::new(0);
-static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
+static mut PUBLISH_COUNT: AtomicUsize = AtomicUsize::new(0);
+static mut PUBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
+static mut ERROR_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 use crate::{
     data::{ActionResponse, Data, Payload, PayloadArray},
@@ -72,37 +73,45 @@ impl Mqtt {
         loop {
             match self.eventloop.poll().await {
                 Ok(m) => {
-                    if let Event::Incoming(Incoming::Publish(Publish { payload, .. })) = &m {
-                        let client = self.client.clone();
-                        let action: Action = serde_json::from_slice(payload).unwrap();
-                        let action_id = action.action_id.parse().unwrap();
-                        let topic =
-                            format!("/tenants/{project_id}/devices/{client_id}/action/status");
-                        spawn(async move {
-                            for sequence in 1..=10 {
-                                let response_array = PayloadArray {
-                                    points: vec![ActionResponse::as_payload(sequence, action_id)],
-                                    compression: true,
-                                };
-                                let payload = response_array.serialized();
-                                if let Err(e) =
-                                    client.try_publish(&topic, QoS::AtLeastOnce, false, payload)
-                                {
-                                    error!("{client_id}: {e}")
+                    match &m {
+                        Event::Incoming(Incoming::Publish(Publish { payload, .. })) => {
+                            let client = self.client.clone();
+                            let action: Action = serde_json::from_slice(payload).unwrap();
+                            let action_id = action.action_id.parse().unwrap();
+                            let topic =
+                                format!("/tenants/{project_id}/devices/{client_id}/action/status");
+                            spawn(async move {
+                                for sequence in 1..=10 {
+                                    let response_array = PayloadArray {
+                                        points: vec![ActionResponse::as_payload(
+                                            sequence, action_id,
+                                        )],
+                                        compression: true,
+                                    };
+                                    let payload = response_array.serialized();
+                                    if let Err(e) =
+                                        client.try_publish(&topic, QoS::AtLeastOnce, false, payload)
+                                    {
+                                        error!("{client_id}: {e}")
+                                    }
+                                    sleep(Duration::from_secs(1)).await;
                                 }
-                                sleep(Duration::from_secs(1)).await;
-                            }
-                        });
+                            });
+                        }
+                        Event::Outgoing(Outgoing::Publish(_)) => unsafe {
+                            PUBLISH_COUNT.fetch_add(1, Ordering::SeqCst);
+                        },
+                        Event::Incoming(Incoming::PubAck(_)) => unsafe {
+                            PUBACK_COUNT.fetch_add(1, Ordering::SeqCst);
+                        },
+                        _ => {}
                     }
                     debug!("client_id: {client_id}; {m:?}");
-                    unsafe {
-                        SUCCESS_COUNT.fetch_add(1, Ordering::SeqCst);
-                    }
                 }
                 Err(e) => {
                     error!("client_id: {client_id}; {e}");
                     unsafe {
-                        FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+                        ERROR_COUNT.fetch_add(1, Ordering::SeqCst);
                     }
                     sleep(Duration::from_secs(10)).await;
                 }
@@ -116,17 +125,19 @@ pub async fn push_mqtt_metrics(topic: String, client: AsyncClient) {
     let mut sequence = 0;
     loop {
         interval.tick().await;
-        let failure = unsafe { FAILURE_COUNT.swap(0, Ordering::Acquire) };
-        let success = unsafe { SUCCESS_COUNT.swap(0, Ordering::Acquire) };
-        debug!("failure: {}, success: {}", failure, success);
+        let errors = unsafe { ERROR_COUNT.swap(0, Ordering::Acquire) };
+        let publishes = unsafe { PUBLISH_COUNT.swap(0, Ordering::Acquire) };
+        let pubacks = unsafe { PUBACK_COUNT.swap(0, Ordering::Acquire) };
+        debug!("errors: {errors}, publishes: {publishes}, pubacks: {pubacks}");
         sequence += 1;
         let payload = PayloadArray {
             points: vec![Payload {
                 sequence,
                 timestamp: Utc::now(),
                 payload: json!({
-                    "success": success,
-                    "failure": failure
+                    "errors": errors,
+                    "publishes": publishes,
+                    "pubacks": pubacks,
                 }),
             }],
             compression: false,
