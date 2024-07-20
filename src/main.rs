@@ -22,8 +22,8 @@ mod mqtt;
 mod simulator;
 
 use data::{
-    ActionResult, Can, Historical, Imu, RideDetail, RideStatistics, RideSummary, Stop,
-    VehicleLocation, VehicleState, VicRequest,
+    Can, Historical, Imu, RideDetail, RideStatistics, RideSummary, Stop, VehicleLocation,
+    VehicleState, VicRequest,
 };
 use mqtt::{push_mqtt_metrics, Mqtt};
 
@@ -139,7 +139,6 @@ fn main() {
     let mut historical = Historical::new();
     historical.load::<Can>("C2C_CAN");
     historical.load::<Imu>("imu_sensor");
-    historical.load::<ActionResult>("action_result");
     historical.load::<RideDetail>("ride_detail");
     historical.load::<RideSummary>("ride_summary");
     historical.load::<RideStatistics>("ride_statistics");

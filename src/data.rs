@@ -242,34 +242,6 @@ impl Type for VicRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActionResult {
-    #[serde(deserialize_with = "deserialize_naive_datetime")]
-    pub timestamp: DateTime<Utc>,
-    action_response: String,
-    r#type: String,
-    user_id: u32,
-    request_id: String,
-}
-
-impl Type for ActionResult {
-    fn timestamp(&self) -> DateTime<Utc> {
-        self.timestamp
-    }
-    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
-        Payload {
-            sequence,
-            timestamp,
-            payload: json!({
-                "action_response": self.action_response,
-                "type": self.r#type,
-                "user_id": self.user_id,
-                "request_id": self.request_id,
-            }),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VehicleLocation {
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     pub timestamp: DateTime<Utc>,

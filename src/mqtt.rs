@@ -32,6 +32,14 @@ pub struct Action {
     pub action_id: String,
 }
 
+// #[derive(Debug, Clone)]
+// pub struct ActionResult {
+//     action_response: String,
+//     r#type: String,
+//     user_id: u32,
+//     request_id: String,
+// }
+
 pub struct Mqtt {
     pub eventloop: EventLoop,
     pub client: AsyncClient,
