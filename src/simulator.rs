@@ -99,7 +99,7 @@ impl Type for StreamMetrics {
         self.timestamp
     }
 
-    fn payload(&self, _: u32) -> Payload {
+    fn payload(&self, _: DateTime<Utc>, _: u32) -> Payload {
         Payload {
             sequence: self.sequence,
             timestamp: self.timestamp,
@@ -141,9 +141,13 @@ async fn push_data(
         let mut iter = data.get_random(stream, &mut rng).iter();
         'refresh: loop {
             let mut start = None;
-            let push = loop {
+            let mut first_time = Utc::now();
+            let mut push = None;
+            let mut till = None;
+            loop {
                 if data_array.points.len() >= max_buf_size {
-                    break data_array.take();
+                    push = Some(data_array.take());
+                    break;
                 }
 
                 if data_array.points.is_empty() {
@@ -155,31 +159,37 @@ async fn push_data(
                         break 'refresh;
                     }
 
-                    break data_array.take();
+                    push = Some(data_array.take());
+                    break;
                 };
 
-                if let Some((_, ts)) = start {
+                sequence %= u32::MAX;
+                sequence += 1;
+                if let Some((init, ts)) = start {
                     let diff: TimeDelta = rec.timestamp() - ts;
                     let duration = diff.abs().to_std().unwrap();
+
                     if duration > timeout {
-                        let push = data_array.take();
-                        data_array.points.push(rec.payload(sequence));
-                        break push;
+                        push = Some(data_array.take());
+                        till = Some(init + duration);
+                    }
+                    data_array
+                        .points
+                        .push(rec.payload(first_time + diff, sequence));
+                    if push.is_some() {
+                        break;
                     }
                 }
 
                 if start.is_none() {
                     start = Some((Instant::now(), rec.timestamp()));
+                    first_time = Utc::now();
                 }
 
                 metrics.add_point();
-                sequence %= u32::MAX;
-                sequence += 1;
-                data_array.points.push(rec.payload(sequence));
-            };
+            }
 
-            if let Some((init, _)) = start {
-                let till = init + timeout;
+            if let Some(till) = till.take() {
                 sleep_until(till).await;
                 let elapsed = Instant::now() - till;
                 if elapsed > Duration::from_millis(10) {
@@ -193,12 +203,15 @@ async fn push_data(
                 }
             }
 
+            let Some(push) = push else {
+                continue;
+            };
             let client = client.clone();
             let topic = topic.clone();
             metrics.add_batch();
             let metrics_topic = metrics_topic.clone();
             let metrics = PayloadArray {
-                points: vec![metrics.take().payload(0)],
+                points: vec![metrics.take().payload(Utc::now(), 0)],
                 compression: false,
             };
             spawn(async move {
@@ -382,7 +395,7 @@ pub async fn single_device(
             }
         }
         let data_array = PayloadArray {
-            points: vec![DeviceShadow::default().payload(sequence)],
+            points: vec![DeviceShadow.payload(Utc::now(), sequence)],
             compression: false,
         };
         sequence += 1;

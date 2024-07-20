@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 
 pub trait Type: std::fmt::Debug + Send + Sync + 'static {
     fn timestamp(&self) -> DateTime<Utc>;
-    fn payload(&self, sequence: u32) -> Payload;
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload;
 }
 
 pub trait Data {
@@ -148,10 +148,10 @@ impl Type for Can {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "can_id": self.can_id,
                 "byte1": self.byte1,
@@ -187,10 +187,10 @@ impl Type for Imu {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "gz": self.gz,
                 "az": self.az,
@@ -220,10 +220,10 @@ impl Type for VicRequest {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "action_request": self.action_request,
                 "type": self.r#type,
@@ -248,10 +248,10 @@ impl Type for ActionResult {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "action_response": self.action_response,
                 "type": self.r#type,
@@ -276,10 +276,10 @@ impl Type for VehicleLocation {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "longitude": self.longitude,
                 "gps_speed": self.gps_speed,
@@ -308,10 +308,10 @@ impl Type for VehicleState {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "range_3": self.range_3,
                 "vehicle_mode": self.vehicle_mode,
@@ -343,10 +343,10 @@ impl Type for Stop {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "location_name": self.location_name,
                 "longitude": self.longitude,
@@ -382,10 +382,10 @@ impl Type for RideStatistics {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "zero_to_sixty": self.zero_to_sixty,
                 "max_left_lean_angle": self.max_left_lean_angle,
@@ -432,10 +432,10 @@ impl Type for RideSummary {
     fn timestamp(&self) -> DateTime<Utc> {
         self.timestamp
     }
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "update_time": self.update_time,
                 "dist_eco": self.dist_eco,
@@ -484,10 +484,10 @@ impl Type for RideDetail {
         self.timestamp
     }
 
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: Utc::now(),
+            timestamp,
             payload: json!({
                 "zero_to_sixty": self.zero_to_sixty,
                 "max_left_lean_angle": self.max_left_lean_angle,
@@ -528,23 +528,17 @@ impl ActionResponse {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DeviceShadow(DateTime<Utc>);
-
-impl Default for DeviceShadow {
-    fn default() -> Self {
-        Self(Utc::now())
-    }
-}
+pub struct DeviceShadow;
 
 impl Type for DeviceShadow {
     fn timestamp(&self) -> DateTime<Utc> {
-        self.0
+        Utc::now()
     }
 
-    fn payload(&self, sequence: u32) -> Payload {
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
         Payload {
             sequence,
-            timestamp: self.0,
+            timestamp,
             payload: json!({
                 "Status": "Connected"
             }),
