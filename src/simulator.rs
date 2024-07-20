@@ -42,7 +42,7 @@ pub struct StreamMetrics {
     #[serde(skip_serializing)]
     pub total_latency: u64,
     #[serde(skip_serializing)]
-    start_time: StdInstant,
+    last_flush: StdInstant,
     pub min_batch_latency: u64,
     pub max_batch_latency: u64,
     pub average_batch_latency: u64,
@@ -59,7 +59,7 @@ impl StreamMetrics {
             batches: 0,
             max_batch_points,
             batch_start_time: StdInstant::now(),
-            start_time: StdInstant::now(),
+            last_flush: StdInstant::now(),
             total_latency: 0,
             average_batch_latency: 0,
             min_batch_latency: 0,
@@ -86,7 +86,7 @@ impl StreamMetrics {
     }
 
     pub fn try_send(&mut self) {
-        if self.start_time.elapsed() < Duration::from_secs(30) {
+        if self.last_flush.elapsed() < Duration::from_secs(30) {
             return; // Don't push stats before 30s
         }
         self.timestamp = Utc::now();
@@ -96,6 +96,7 @@ impl StreamMetrics {
         self.points = 0;
         self.batches = 0;
         self.batch_start_time = StdInstant::now();
+        self.last_flush = StdInstant::now();
         self.total_latency = 0;
         self.min_batch_latency = 0;
         self.max_batch_latency = 0;
