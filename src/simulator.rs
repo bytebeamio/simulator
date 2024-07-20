@@ -7,13 +7,14 @@ use std::{
 };
 
 use chrono::{DateTime, TimeDelta, Utc};
+use flume::{bounded, Sender};
 use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rumqttc::{mqttbytes::QoS, AsyncClient};
 use serde::Serialize;
 use serde_json::json;
 use tokio::{
-    spawn,
+    select, spawn,
     time::{interval, sleep, sleep_until, Instant},
 };
 
@@ -30,6 +31,8 @@ pub struct StreamMetrics {
     pub timestamp: DateTime<Utc>,
     #[serde(skip_serializing)]
     pub sequence: u32,
+    #[serde(skip_serializing)]
+    metrics_tx: Sender<Payload>,
     pub stream: String,
     pub points: usize,
     pub batches: u64,
@@ -44,8 +47,9 @@ pub struct StreamMetrics {
 }
 
 impl StreamMetrics {
-    pub fn new(stream: &str, max_batch_points: usize) -> Self {
+    pub fn new(stream: &str, max_batch_points: usize, metrics_tx: Sender<Payload>) -> Self {
         StreamMetrics {
+            metrics_tx,
             stream: stream.to_owned(),
             timestamp: Utc::now(),
             sequence: 1,
@@ -92,6 +96,16 @@ impl StreamMetrics {
 
         captured
     }
+
+    pub async fn try_send(self) {
+        let metrics = self.payload(Utc::now(), 0);
+        if let Err(e) = self.metrics_tx.try_send(metrics) {
+            unsafe {
+                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+            }
+            error!("{e}; stream={}", self.stream);
+        }
+    }
 }
 
 impl Type for StreamMetrics {
@@ -119,20 +133,19 @@ async fn push_data(
     data: Arc<Historical>,
     mut rng: StdRng,
     (refresh_low, refresh_high): (u64, u64),
+    metrics_tx: Sender<Payload>,
 ) {
     let mut sequence = 0;
     let mut data_array = PayloadArray {
         points: vec![],
         compression,
     };
-    let mut metrics = StreamMetrics::new(stream, max_buf_size);
+    let mut metrics = StreamMetrics::new(stream, max_buf_size, metrics_tx);
 
     let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
     if compression {
         topic.push_str("/lz4")
     }
-    let metrics_topic =
-        format!("/tenants/{project_id}/devices/{client_id}/events/uplink_stream_metrics/jsonarray");
 
     loop {
         // Some data streams need not see much data
@@ -209,11 +222,7 @@ async fn push_data(
             let client = client.clone();
             let topic = topic.clone();
             metrics.add_batch();
-            let metrics_topic = metrics_topic.clone();
-            let metrics = PayloadArray {
-                points: vec![metrics.take().payload(Utc::now(), 0)],
-                compression: false,
-            };
+            metrics.take().try_send().await;
             spawn(async move {
                 if let Err(e) = client
                     .publish(&topic, QoS::AtMostOnce, false, push.serialized())
@@ -223,16 +232,6 @@ async fn push_data(
                         FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
                     }
                     error!("{e}; topic={topic}");
-                }
-
-                if let Err(e) = client
-                    .publish(&metrics_topic, QoS::AtMostOnce, false, metrics.serialized())
-                    .await
-                {
-                    unsafe {
-                        FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-                    }
-                    error!("{e}; topic={metrics_topic}");
                 }
             });
         }
@@ -252,6 +251,8 @@ pub async fn single_device(
     sleep(Duration::from_secs(rng.gen::<u8>() as u64)).await;
     info!("Simulating device {client_id}");
 
+    let (metrics_tx, metrics_rx) = bounded(10);
+
     spawn(push_data(
         client.clone(),
         config.project_id.clone(),
@@ -263,6 +264,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (0, 1),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -275,6 +277,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (0, 10),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -287,6 +290,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (10, 1_000),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -299,6 +303,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (10_000, 10_000_000),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -311,6 +316,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (10_000, 10_000_000),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -323,6 +329,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (10_000, 10_000_000),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -335,6 +342,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (100, 10_000),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -347,6 +355,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (100, 10_000),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -359,6 +368,7 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (100, 10_000),
+        metrics_tx.clone(),
     ));
     spawn(push_data(
         client.clone(),
@@ -371,20 +381,50 @@ pub async fn single_device(
         data.clone(),
         rng.clone(),
         (100, 10_000),
+        metrics_tx.clone(),
+    ));
+    spawn(push_device_shadow(
+        client.clone(),
+        config.project_id.clone(),
+        client_id,
+        metrics_tx.clone(),
     ));
 
-    let mut sequence = 0;
-    let timeout = Duration::from_secs(10);
-    let mut interval = interval(timeout);
     let topic = format!(
-        "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
-        config.project_id
-    );
-    let mut metrics = StreamMetrics::new("device_shadow", 1);
-    let metrics_topic = format!(
         "/tenants/{}/devices/{client_id}/events/uplink_stream_metrics/jsonarray",
         config.project_id
     );
+    let mut interval = interval(Duration::from_secs(30));
+    let mut array = PayloadArray {
+        points: vec![],
+        compression: false,
+    };
+    loop {
+        select! {
+            Ok(payload) = metrics_rx.recv_async() => {
+                array.points.push(payload);
+            }
+            _ = interval.tick() => {
+                if let Err(e) = client.try_publish(&topic, QoS::AtLeastOnce, false, array.take().serialized()){
+                    error!("{e}; topic={topic}")
+                };
+            }
+        }
+    }
+}
+
+async fn push_device_shadow(
+    client: AsyncClient,
+    project_id: String,
+    client_id: u32,
+    metrics_tx: Sender<Payload>,
+) {
+    let mut sequence = 0;
+    let timeout = Duration::from_secs(10);
+    let mut interval = interval(timeout);
+    let topic =
+        format!("/tenants/{project_id}/devices/{client_id}/events/device_shadow/jsonarray",);
+    let mut metrics = StreamMetrics::new("device_shadow", 1, metrics_tx);
 
     loop {
         let start = Instant::now();
@@ -410,11 +450,7 @@ pub async fn single_device(
         let topic = topic.clone();
         metrics.add_point();
         metrics.add_batch();
-        let metrics_topic = metrics_topic.clone();
-        let metrics = PayloadArray {
-            points: vec![metrics.take().payload(Utc::now(), 0)],
-            compression: false,
-        };
+        metrics.take().try_send().await;
         spawn(async move {
             if let Err(e) = client
                 .publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
@@ -424,16 +460,6 @@ pub async fn single_device(
                     FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
                 }
                 error!("{client_id}/device_shadow: {e}");
-            }
-
-            if let Err(e) = client
-                .publish(&metrics_topic, QoS::AtMostOnce, false, metrics.serialized())
-                .await
-            {
-                unsafe {
-                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-                }
-                error!("{e}; topic={metrics_topic}");
             }
         });
     }
