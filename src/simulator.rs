@@ -194,7 +194,7 @@ async fn push_data(
                 let elapsed = Instant::now() - till;
                 if elapsed > Duration::from_millis(10) {
                     warn!(
-                        "Slow batching: {stream} for {client_id}by {}ms",
+                        "Slow batching: {stream} for {client_id} by {}ms",
                         elapsed.as_millis()
                     );
                     unsafe {
@@ -232,7 +232,7 @@ async fn push_data(
                     unsafe {
                         FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
                     }
-                    error!("{e}; topic={topic}");
+                    error!("{e}; topic={metrics_topic}");
                 }
             });
         }
@@ -380,6 +380,11 @@ pub async fn single_device(
         "/tenants/{}/devices/{client_id}/events/device_shadow/jsonarray",
         config.project_id
     );
+    let mut metrics = StreamMetrics::new("device_shadow", 1);
+    let metrics_topic = format!(
+        "/tenants/{}/devices/{client_id}/events/uplink_stream_metrics/jsonarray",
+        config.project_id
+    );
 
     loop {
         let start = Instant::now();
@@ -394,18 +399,43 @@ pub async fn single_device(
                 DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
             }
         }
+
+        sequence += 1;
         let data_array = PayloadArray {
             points: vec![DeviceShadow.payload(Utc::now(), sequence)],
             compression: false,
         };
-        sequence += 1;
-        if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
-        {
-            unsafe {
-                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+
+        let client = client.clone();
+        let topic = topic.clone();
+        metrics.add_point();
+        metrics.add_batch();
+        let metrics_topic = metrics_topic.clone();
+        let metrics = PayloadArray {
+            points: vec![metrics.take().payload(Utc::now(), 0)],
+            compression: false,
+        };
+        spawn(async move {
+            if let Err(e) = client
+                .publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
+                .await
+            {
+                unsafe {
+                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+                }
+                error!("{client_id}/device_shadow: {e}");
             }
-            error!("{client_id}/device_shadow: {e}");
-        }
+
+            if let Err(e) = client
+                .publish(&metrics_topic, QoS::AtMostOnce, false, metrics.serialized())
+                .await
+            {
+                unsafe {
+                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+                }
+                error!("{e}; topic={metrics_topic}");
+            }
+        });
     }
 }
 
@@ -429,6 +459,7 @@ pub async fn push_simulator_metrics(topic: String, client: AsyncClient) {
             }],
             compression: false,
         };
+
         if let Err(e) = client
             .publish(&topic, QoS::AtLeastOnce, false, payload.serialized())
             .await
