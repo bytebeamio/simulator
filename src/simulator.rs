@@ -203,7 +203,7 @@ async fn push_data(
                 }
             }
 
-            let Some(push) = push else {
+            let Some(push) = push.take() else {
                 continue;
             };
             let client = client.clone();
@@ -236,7 +236,7 @@ async fn push_data(
                 }
             });
         }
-        info!("refreshing {stream}");
+        info!("refreshing {client_id}/{stream}");
     }
 }
 
