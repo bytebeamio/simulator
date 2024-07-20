@@ -97,16 +97,14 @@ impl StreamMetrics {
         captured
     }
 
-    pub async fn spawn_send(self) {
+    pub fn try_send(self) {
         let metrics = self.payload(Utc::now(), 0);
-        spawn(async move {
-            if let Err(e) = self.metrics_tx.send_async(metrics).await {
-                unsafe {
-                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-                }
-                error!("{e}; stream={}", self.stream);
+        if let Err(e) = self.metrics_tx.try_send(metrics) {
+            unsafe {
+                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
             }
-        });
+            error!("{e}; stream={}", self.stream);
+        }
     }
 }
 
@@ -209,21 +207,15 @@ async fn push_data(
                 }
             }
 
-            let client = client.clone();
-            let topic = topic.clone();
             metrics.add_batch();
-            metrics.take().spawn_send().await;
-            spawn(async move {
-                if let Err(e) = client
-                    .publish(&topic, QoS::AtMostOnce, false, push.serialized())
-                    .await
-                {
-                    unsafe {
-                        FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-                    }
-                    error!("{e}; topic={topic}");
+            metrics.take().try_send().await;
+
+            if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, push.serialized()) {
+                unsafe {
+                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
                 }
-            });
+                error!("{e}; topic={topic}");
+            }
         }
         info!("refreshing {client_id}/{stream}");
     }
@@ -380,14 +372,12 @@ pub async fn single_device(
         };
         let client = client.clone();
         let topic = topic.clone();
-        spawn(async move {
-            if let Err(e) = client
-                .publish(&topic, QoS::AtLeastOnce, false, array.take().serialized())
-                .await
-            {
-                error!("{e}; topic={topic}")
-            }
-        });
+
+        if let Err(e) =
+            client.try_publish(&topic, QoS::AtLeastOnce, false, array.take().serialized())
+        {
+            error!("{e}; topic={topic}")
+        }
     }
 }
 
@@ -427,18 +417,14 @@ async fn push_device_shadow(
         let topic = topic.clone();
         metrics.add_point();
         metrics.add_batch();
-        metrics.take().spawn_send().await;
-        spawn(async move {
-            if let Err(e) = client
-                .publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
-                .await
-            {
-                unsafe {
-                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-                }
-                error!("{client_id}/device_shadow: {e}");
+        metrics.take().try_send();
+        if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
+        {
+            unsafe {
+                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
             }
-        });
+            error!("{client_id}/device_shadow: {e}");
+        }
     }
 }
 
