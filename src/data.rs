@@ -96,9 +96,20 @@ pub struct PayloadArray {
 }
 
 impl PayloadArray {
+    pub fn new(cap: usize, compression: bool) -> Self {
+        Self {
+            points: Vec::with_capacity(cap), // PERF: ensures lesser allocs
+            compression,
+        }
+    }
+
+    pub fn push(&mut self, point: Payload) {
+        self.points.push(point)
+    }
+
     pub fn take(&mut self) -> Self {
         Self {
-            points: std::mem::take(&mut self.points),
+            points: self.points.drain(..).collect(), // PERF: drain ensures we don't lose out alloc
             compression: self.compression,
         }
     }

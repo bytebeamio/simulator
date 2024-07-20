@@ -136,10 +136,7 @@ async fn push_data(
     metrics_tx: Sender<Payload>,
 ) {
     let mut sequence = 0;
-    let mut data_array = PayloadArray {
-        points: vec![],
-        compression,
-    };
+    let mut data_array = PayloadArray::new(max_buf_size, compression);
     let mut metrics = StreamMetrics::new(stream, max_buf_size, metrics_tx);
 
     let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
@@ -387,14 +384,11 @@ pub async fn single_device(
         config.project_id
     );
     let mut interval = interval(Duration::from_secs(30));
-    let mut array = PayloadArray {
-        points: vec![],
-        compression: false,
-    };
+    let mut array = PayloadArray::new(100, false);
     loop {
         select! {
             Ok(payload) = metrics_rx.recv_async() => {
-                array.points.push(payload);
+                array.push(payload);
             }
             _ = interval.tick() => {
                 if let Err(e) = client.try_publish(&topic, QoS::AtLeastOnce, false, array.take().serialized()){
@@ -414,8 +408,7 @@ async fn push_device_shadow(
     let mut sequence = 0;
     let timeout = Duration::from_secs(10);
     let mut interval = interval(timeout);
-    let topic =
-        format!("/tenants/{project_id}/devices/{client_id}/events/device_shadow/jsonarray",);
+    let topic = format!("/tenants/{project_id}/devices/{client_id}/events/device_shadow/jsonarray");
     let mut metrics = StreamMetrics::new("device_shadow", 1, metrics_tx);
 
     loop {
