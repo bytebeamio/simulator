@@ -184,11 +184,10 @@ async fn push_data(
                     if let Some(push) = push {
                         break push;
                     }
-                }
-
-                if start.is_none() {
-                    start = Some((Instant::now(), rec.timestamp()));
+                } else {
                     first_time = Utc::now();
+                    data_array.points.push(rec.payload(first_time, sequence));
+                    start = Some((Instant::now(), rec.timestamp()));
                 }
 
                 metrics.add_point();
