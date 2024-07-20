@@ -97,14 +97,16 @@ impl StreamMetrics {
         captured
     }
 
-    pub async fn try_send(self) {
+    pub async fn spawn_send(self) {
         let metrics = self.payload(Utc::now(), 0);
-        if let Err(e) = self.metrics_tx.try_send(metrics) {
-            unsafe {
-                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+        spawn(async move {
+            if let Err(e) = self.metrics_tx.send_async(metrics).await {
+                unsafe {
+                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
+                }
+                error!("{e}; stream={}", self.stream);
             }
-            error!("{e}; stream={}", self.stream);
-        }
+        });
     }
 }
 
@@ -210,7 +212,7 @@ async fn push_data(
             let client = client.clone();
             let topic = topic.clone();
             metrics.add_batch();
-            metrics.take().try_send().await;
+            metrics.take().spawn_send().await;
             spawn(async move {
                 if let Err(e) = client
                     .publish(&topic, QoS::AtMostOnce, false, push.serialized())
@@ -239,7 +241,7 @@ pub async fn single_device(
     sleep(Duration::from_secs(rng.gen::<u8>() as u64)).await;
     info!("Simulating device {client_id}");
 
-    let (metrics_tx, metrics_rx) = bounded(500);
+    let (metrics_tx, metrics_rx) = bounded(1000);
 
     spawn(push_data(
         client.clone(),
@@ -376,11 +378,16 @@ pub async fn single_device(
             points: metrics_rx.drain().collect(),
             compression: false,
         };
-        if let Err(e) =
-            client.try_publish(&topic, QoS::AtLeastOnce, false, array.take().serialized())
-        {
-            error!("{e}; topic={topic}")
-        };
+        let client = client.clone();
+        let topic = topic.clone();
+        spawn(async move {
+            if let Err(e) = client
+                .publish(&topic, QoS::AtLeastOnce, false, array.take().serialized())
+                .await
+            {
+                error!("{e}; topic={topic}")
+            }
+        });
     }
 }
 
@@ -420,7 +427,7 @@ async fn push_device_shadow(
         let topic = topic.clone();
         metrics.add_point();
         metrics.add_batch();
-        metrics.take().try_send().await;
+        metrics.take().spawn_send().await;
         spawn(async move {
             if let Err(e) = client
                 .publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
