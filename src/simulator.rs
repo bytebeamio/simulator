@@ -41,6 +41,8 @@ pub struct StreamMetrics {
     pub batch_start_time: StdInstant,
     #[serde(skip_serializing)]
     pub total_latency: u64,
+    #[serde(skip_serializing)]
+    start_time: StdInstant,
     pub min_batch_latency: u64,
     pub max_batch_latency: u64,
     pub average_batch_latency: u64,
@@ -57,6 +59,7 @@ impl StreamMetrics {
             batches: 0,
             max_batch_points,
             batch_start_time: StdInstant::now(),
+            start_time: StdInstant::now(),
             total_latency: 0,
             average_batch_latency: 0,
             min_batch_latency: 0,
@@ -79,9 +82,13 @@ impl StreamMetrics {
         self.min_batch_latency = self.min_batch_latency.min(latency);
         self.total_latency += latency;
         self.average_batch_latency = self.total_latency / self.batches;
+        self.batch_start_time = StdInstant::now();
     }
 
-    pub fn take(&mut self) -> Self {
+    pub fn try_send(&mut self) {
+        if self.start_time.elapsed() < Duration::from_secs(30) {
+            return; // Don't push stats before 30s
+        }
         self.timestamp = Utc::now();
         self.sequence += 1;
         let captured = self.clone();
@@ -93,12 +100,7 @@ impl StreamMetrics {
         self.min_batch_latency = 0;
         self.max_batch_latency = 0;
         self.average_batch_latency = 0;
-
-        captured
-    }
-
-    pub fn try_send(self) {
-        let metrics = self.payload(Utc::now(), 0);
+        let metrics = captured.payload(Utc::now(), 0);
         if let Err(e) = self.metrics_tx.try_send(metrics) {
             unsafe {
                 FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -208,7 +210,7 @@ async fn push_data(
             }
 
             metrics.add_batch();
-            metrics.take().try_send().await;
+            metrics.try_send();
 
             if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, push.serialized()) {
                 unsafe {
@@ -232,7 +234,7 @@ pub async fn single_device(
     // Wait a few seconds at random to deter waves
     sleep(Duration::from_secs(rng.gen::<u8>() as u64)).await;
     info!("Simulating device {client_id}");
-
+    // PERF sending to a channel should ideally be like pushing into a buf
     let (metrics_tx, metrics_rx) = bounded(1000);
 
     spawn(push_data(
@@ -417,7 +419,7 @@ async fn push_device_shadow(
         let topic = topic.clone();
         metrics.add_point();
         metrics.add_batch();
-        metrics.take().try_send();
+        metrics.try_send();
         if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
         {
             unsafe {
