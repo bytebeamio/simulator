@@ -14,7 +14,7 @@ use rumqttc::{mqttbytes::QoS, AsyncClient};
 use serde::Serialize;
 use serde_json::json;
 use tokio::{
-    select, spawn,
+    spawn,
     time::{interval, sleep, sleep_until, Instant},
 };
 
@@ -239,7 +239,7 @@ pub async fn single_device(
     sleep(Duration::from_secs(rng.gen::<u8>() as u64)).await;
     info!("Simulating device {client_id}");
 
-    let (metrics_tx, metrics_rx) = bounded(10);
+    let (metrics_tx, metrics_rx) = bounded(500);
 
     spawn(push_data(
         client.clone(),
@@ -383,18 +383,17 @@ pub async fn single_device(
         config.project_id
     );
     let mut interval = interval(Duration::from_secs(30));
-    let mut array = PayloadArray::new(100, false);
     loop {
-        select! {
-            Ok(payload) = metrics_rx.recv_async() => {
-                array.push(payload);
-            }
-            _ = interval.tick() => {
-                if let Err(e) = client.try_publish(&topic, QoS::AtLeastOnce, false, array.take().serialized()){
-                    error!("{e}; topic={topic}")
-                };
-            }
-        }
+        interval.tick().await;
+        let mut array = PayloadArray {
+            points: metrics_rx.drain().collect(),
+            compression: false,
+        };
+        if let Err(e) =
+            client.try_publish(&topic, QoS::AtLeastOnce, false, array.take().serialized())
+        {
+            error!("{e}; topic={topic}")
+        };
     }
 }
 

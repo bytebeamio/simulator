@@ -103,10 +103,6 @@ impl PayloadArray {
         }
     }
 
-    pub fn push(&mut self, point: Payload) {
-        self.points.push(point)
-    }
-
     pub fn take(&mut self) -> Self {
         Self {
             points: self.points.drain(..).collect(), // PERF: drain ensures we don't lose out alloc
