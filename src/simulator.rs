@@ -155,12 +155,10 @@ async fn push_data(
         'refresh: loop {
             let mut start = None;
             let mut first_time = Utc::now();
-            let mut push = None;
-            let mut till = None;
-            loop {
+
+            let (push, till) = loop {
                 if data_array.points.len() >= max_buf_size {
-                    push = Some(data_array.take());
-                    break;
+                    break (data_array.take(), None);
                 }
 
                 if data_array.points.is_empty() {
@@ -171,9 +169,7 @@ async fn push_data(
                     if data_array.points.is_empty() {
                         break 'refresh;
                     }
-
-                    push = Some(data_array.take());
-                    break;
+                    break (data_array.take(), None);
                 };
 
                 sequence %= u32::MAX;
@@ -181,16 +177,15 @@ async fn push_data(
                 if let Some((init, ts)) = start {
                     let diff: TimeDelta = rec.timestamp() - ts;
                     let duration = diff.abs().to_std().unwrap();
-
+                    let mut push = None;
                     if duration > timeout {
-                        push = Some(data_array.take());
-                        till = Some(init + duration);
+                        push = Some((data_array.take(), Some(init + duration)));
                     }
                     data_array
                         .points
                         .push(rec.payload(first_time + diff, sequence));
-                    if push.is_some() {
-                        break;
+                    if let Some(push) = push {
+                        break push;
                     }
                 }
 
@@ -200,9 +195,9 @@ async fn push_data(
                 }
 
                 metrics.add_point();
-            }
+            };
 
-            if let Some(till) = till.take() {
+            if let Some(till) = till {
                 sleep_until(till).await;
                 let elapsed = Instant::now() - till;
                 if elapsed > Duration::from_millis(10) {
@@ -216,9 +211,6 @@ async fn push_data(
                 }
             }
 
-            let Some(push) = push.take() else {
-                continue;
-            };
             let client = client.clone();
             let topic = topic.clone();
             metrics.add_batch();
