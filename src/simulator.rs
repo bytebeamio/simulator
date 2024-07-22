@@ -23,6 +23,7 @@ use crate::{data::Data, Config};
 use super::data::{DeviceShadow, Historical, Payload, PayloadArray, Type};
 
 static mut DELAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
+static mut MAX_DELAY: AtomicUsize = AtomicUsize::new(0);
 static mut FAILURE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Serialize, Clone)]
@@ -200,12 +201,11 @@ async fn push_data(
                 sleep_until(till).await;
                 let elapsed = Instant::now() - till;
                 if elapsed > Duration::from_millis(10) {
-                    warn!(
-                        "Slow batching: {stream} for {client_id} by {}ms",
-                        elapsed.as_millis()
-                    );
+                    let delay = elapsed.as_millis() as usize;
+                    warn!("Slow batching: {stream} for {client_id} by {}ms", delay);
                     unsafe {
                         DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
+                        MAX_DELAY.fetch_max(delay, Ordering::SeqCst);
                     }
                 }
             }
@@ -401,12 +401,14 @@ async fn push_device_shadow(
         interval.tick().await;
         let elapsed = start.elapsed().saturating_sub(timeout);
         if elapsed > Duration::from_millis(10) {
+            let delay = elapsed.as_millis() as usize;
             warn!(
-                "Slow data generation: device shadow for {client_id} by {}ms",
-                elapsed.as_millis()
+                "Slow batching: device_shadow for {client_id} by {}ms",
+                delay
             );
             unsafe {
                 DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
+                MAX_DELAY.fetch_max(delay, Ordering::SeqCst);
             }
         }
 
@@ -437,6 +439,7 @@ pub async fn push_simulator_metrics(topic: String, client: AsyncClient) {
     loop {
         interval.tick().await;
         let delayed = unsafe { DELAYED_COUNT.swap(0, Ordering::Acquire) };
+        let max_delay = unsafe { MAX_DELAY.swap(0, Ordering::Acquire) };
         let failure = unsafe { FAILURE_COUNT.swap(0, Ordering::Acquire) };
         debug!("delayed: {delayed}");
         sequence += 1;
@@ -446,6 +449,7 @@ pub async fn push_simulator_metrics(topic: String, client: AsyncClient) {
                 timestamp: Utc::now(),
                 payload: json!({
                     "delayed": delayed,
+                    "max_delay": max_delay,
                     "publish_failure": failure
                 }),
             }],
