@@ -105,7 +105,7 @@ fn main() {
                 }
 
                 opt.set_max_packet_size(1024 * 1024, 1024 * 1024);
-                let (client, mut eventloop) = AsyncClient::new(opt, 1);
+                let (client, mut eventloop) = AsyncClient::new(opt, 10);
                 eventloop.network_options.set_connection_timeout(30);
                 // Don't start simulation till first connack
                 loop {
