@@ -20,6 +20,7 @@ use tracing_subscriber::EnvFilter;
 mod data;
 mod mqtt;
 mod simulator;
+mod sysinfo;
 
 use data::{
     Can, Historical, Imu, RideDetail, RideStatistics, RideSummary, Stop, VehicleLocation,
@@ -128,7 +129,9 @@ fn main() {
                     "/tenants/{}/devices/1/events/simulator_data_metrics/jsonarray",
                     mqtt_config.project_id
                 );
-                tasks.spawn(push_simulator_metrics(topic, client));
+                tasks.spawn(push_simulator_metrics(topic, client.clone()));
+                let stat_collector = sysinfo::StatCollector::new(&mqtt_config.project_id, 1);
+                tasks.spawn(stat_collector.start(client));
 
                 while let Some(Err(e)) = tasks.join_next().await {
                     error!("{e}")
