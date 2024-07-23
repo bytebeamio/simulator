@@ -156,10 +156,11 @@ async fn push_data(
         'refresh: loop {
             let mut start = None;
             let mut first_time = Utc::now();
+            let mut last_time = Duration::ZERO;
 
             let (push, till) = loop {
                 if data_array.points.len() >= max_buf_size {
-                    break (data_array.take(), None);
+                    break (data_array.take(), start.map(|(init, _)| init + last_time));
                 }
 
                 if data_array.points.is_empty() {
@@ -170,7 +171,7 @@ async fn push_data(
                     if data_array.points.is_empty() {
                         break 'refresh;
                     }
-                    break (data_array.take(), None);
+                    break (data_array.take(), start.map(|(init, _)| init + last_time));
                 };
 
                 sequence %= u32::MAX;
@@ -181,6 +182,8 @@ async fn push_data(
                     let mut push = None;
                     if duration > timeout {
                         push = Some((data_array.take(), Some(init + duration)));
+                    } else {
+                        last_time = duration;
                     }
                     data_array
                         .points
@@ -192,6 +195,7 @@ async fn push_data(
                     first_time = Utc::now();
                     data_array.points.push(rec.payload(first_time, sequence));
                     start = Some((Instant::now(), rec.timestamp()));
+                    last_time = Duration::ZERO;
                 }
 
                 metrics.add_point();
