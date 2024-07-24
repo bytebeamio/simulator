@@ -153,18 +153,14 @@ async fn push_data(
         let refresh_time = Duration::from_secs(rng.gen_range(refresh_low..refresh_high));
         sleep(refresh_time).await;
         let mut iter = data.get_random(stream, &mut rng).iter();
+        let mut first_time = Utc::now();
+        let mut start = None;
         'refresh: loop {
-            let mut start = None;
-            let mut first_time = Utc::now();
             let mut last_time = Duration::ZERO;
 
             let (push, till) = loop {
                 if data_array.points.len() >= max_buf_size {
                     break (data_array.take(), start.map(|(init, _)| init + last_time));
-                }
-
-                if data_array.points.is_empty() {
-                    start.take();
                 }
 
                 let Some(rec) = iter.next() else {
