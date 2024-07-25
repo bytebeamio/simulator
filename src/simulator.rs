@@ -243,7 +243,7 @@ pub async fn single_device(
         config.project_id.clone(),
         client_id,
         "C2C_CAN",
-        100,
+        900,
         Duration::from_secs(60),
         true,
         data.clone(),
