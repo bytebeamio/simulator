@@ -75,7 +75,7 @@ fn main() {
     let mqtt_config = config.clone();
     thread::spawn(move || {
         Builder::new_multi_thread()
-            .worker_threads(4)
+            .worker_threads(2)
             .thread_name_fn(|| {
                 static ID: AtomicU8 = AtomicU8::new(0);
                 format!("MQTT Handler {}", ID.fetch_add(1, Ordering::SeqCst))
@@ -153,7 +153,7 @@ fn main() {
 
     info!("Data loaded into memory");
 
-    let simulator_cpu_count = num_cpus::get() - 4; // reserve 4 cores for mqtt
+    let simulator_cpu_count = num_cpus::get() - 2; // reserve 4 cores for mqtt
     info!("Starting simulator on {simulator_cpu_count} cpus");
     Builder::new_multi_thread()
         .worker_threads(simulator_cpu_count)
