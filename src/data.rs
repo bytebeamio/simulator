@@ -4,6 +4,7 @@ use std::{
     fs::{read_dir, File},
     io::{BufReader, Write},
     sync::Mutex,
+    time::Duration,
 };
 
 use chrono::{serde::ts_milliseconds, DateTime, NaiveDateTime, TimeDelta, TimeZone, Utc};
@@ -16,8 +17,8 @@ use serde_json::{json, Value};
 
 pub trait Type: std::fmt::Debug + Send + Sync + 'static {
     fn timestamp(&self) -> DateTime<Utc>;
-    fn set_delay(&mut self, delay: TimeDelta);
-    fn delay(&self) -> TimeDelta;
+    fn set_delay(&mut self, delay: Duration);
+    fn delay(&self) -> Duration;
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload;
 }
 
@@ -67,10 +68,10 @@ impl Historical {
             for mut row in rdr.deserialize::<T>().filter_map(Result::ok) {
                 let ts = row.timestamp();
                 let delay = match start_ts {
-                    Some(start_ts) => ts - start_ts,
+                    Some(start_ts) => ((ts - start_ts) as TimeDelta).abs().to_std().unwrap(),
                     None => {
                         start_ts = Some(ts);
-                        TimeDelta::zero()
+                        Duration::ZERO
                     }
                 };
                 row.set_delay(delay);
@@ -158,7 +159,9 @@ pub struct Can {
     byte8: u8,
     dbc_ver: u16,
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
+    #[serde(skip)]
+    duration: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
 }
@@ -168,11 +171,11 @@ impl Type for Can {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
-        self.delay = delay
+    fn set_delay(&mut self, delay: Duration) {
+        self.delay = delay;
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -208,7 +211,7 @@ pub struct Imu {
     gx: f64,
     my: i32,
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
 }
@@ -218,11 +221,11 @@ impl Type for Imu {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
+    fn set_delay(&mut self, delay: Duration) {
         self.delay = delay
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -248,7 +251,7 @@ impl Type for Imu {
 #[derive(Debug, Clone, Deserialize)]
 pub struct VicRequest {
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
     action_request: String,
@@ -262,11 +265,11 @@ impl Type for VicRequest {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
+    fn set_delay(&mut self, delay: Duration) {
         self.delay = delay
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -287,7 +290,7 @@ impl Type for VicRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct VehicleLocation {
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
     longitude: f64,
@@ -301,11 +304,11 @@ impl Type for VehicleLocation {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
+    fn set_delay(&mut self, delay: Duration) {
         self.delay = delay
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -326,7 +329,7 @@ impl Type for VehicleLocation {
 #[derive(Debug, Clone, Deserialize)]
 pub struct VehicleState {
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
     range_3: u32,
@@ -344,11 +347,11 @@ impl Type for VehicleState {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
+    fn set_delay(&mut self, delay: Duration) {
         self.delay = delay
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -373,7 +376,7 @@ impl Type for VehicleState {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Stop {
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
     location_name: String,
@@ -390,11 +393,11 @@ impl Type for Stop {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
+    fn set_delay(&mut self, delay: Duration) {
         self.delay = delay
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -418,7 +421,7 @@ impl Type for Stop {
 #[derive(Debug, Clone, Deserialize)]
 pub struct RideStatistics {
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
     zero_to_sixty: f64,
@@ -440,11 +443,11 @@ impl Type for RideStatistics {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
+    fn set_delay(&mut self, delay: Duration) {
         self.delay = delay
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -473,7 +476,7 @@ impl Type for RideStatistics {
 #[derive(Debug, Clone, Deserialize)]
 pub struct RideSummary {
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
     update_time: String,
@@ -501,11 +504,11 @@ impl Type for RideSummary {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
+    fn set_delay(&mut self, delay: Duration) {
         self.delay = delay
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -540,7 +543,7 @@ impl Type for RideSummary {
 #[derive(Debug, Clone, Deserialize)]
 pub struct RideDetail {
     #[serde(skip)]
-    delay: TimeDelta,
+    delay: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
     zero_to_sixty: f64,
@@ -563,11 +566,11 @@ impl Type for RideDetail {
         self.timestamp
     }
 
-    fn set_delay(&mut self, delay: TimeDelta) {
+    fn set_delay(&mut self, delay: Duration) {
         self.delay = delay
     }
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         self.delay
     }
 
@@ -622,10 +625,10 @@ impl Type for DeviceShadow {
         todo!()
     }
 
-    fn set_delay(&mut self, _: TimeDelta) {}
+    fn set_delay(&mut self, _: Duration) {}
 
-    fn delay(&self) -> TimeDelta {
-        TimeDelta::zero()
+    fn delay(&self) -> Duration {
+        Duration::ZERO
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {

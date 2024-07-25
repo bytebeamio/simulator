@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant as StdInstant},
 };
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use flume::{bounded, Sender};
 use log::{debug, error, info, warn};
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -117,9 +117,9 @@ impl Type for StreamMetrics {
         todo!()
     }
 
-    fn set_delay(&mut self, _: TimeDelta) {}
+    fn set_delay(&mut self, _: Duration) {}
 
-    fn delay(&self) -> TimeDelta {
+    fn delay(&self) -> Duration {
         todo!()
     }
 
@@ -179,8 +179,7 @@ async fn push_data(
                 sequence %= u32::MAX;
                 sequence += 1;
                 if let Some(init) = start {
-                    let diff: TimeDelta = rec.delay();
-                    let duration = diff.abs().to_std().unwrap();
+                    let duration = rec.delay();
                     let mut push = None;
                     if duration > timeout {
                         push = Some((data_array.take(), Some(init + duration)));
@@ -189,7 +188,7 @@ async fn push_data(
                     }
                     data_array
                         .points
-                        .push(rec.payload(first_time + diff, sequence));
+                        .push(rec.payload(first_time + duration, sequence));
                     if let Some(push) = push {
                         break push;
                     }

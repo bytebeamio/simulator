@@ -1,4 +1,4 @@
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use log::error;
 use rumqttc::{mqttbytes::QoS, AsyncClient};
 use serde::Serialize;
@@ -54,10 +54,10 @@ impl Type for SysInfo {
         todo!()
     }
 
-    fn set_delay(&mut self, _: TimeDelta) {}
+    fn set_delay(&mut self, _: Duration) {}
 
-    fn delay(&self) -> TimeDelta {
-        TimeDelta::zero()
+    fn delay(&self) -> Duration {
+        Duration::ZERO
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
@@ -125,10 +125,10 @@ impl Type for Network {
         todo!()
     }
 
-    fn set_delay(&mut self, _: TimeDelta) {}
+    fn set_delay(&mut self, _: Duration) {}
 
-    fn delay(&self) -> TimeDelta {
-        TimeDelta::zero()
+    fn delay(&self) -> Duration {
+        Duration::ZERO
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
@@ -206,10 +206,10 @@ impl Type for Disk {
         todo!()
     }
 
-    fn set_delay(&mut self, _: TimeDelta) {}
+    fn set_delay(&mut self, _: Duration) {}
 
-    fn delay(&self) -> TimeDelta {
-        TimeDelta::zero()
+    fn delay(&self) -> Duration {
+        Duration::ZERO
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
@@ -284,10 +284,10 @@ impl Type for Processor {
         todo!()
     }
 
-    fn set_delay(&mut self, _: TimeDelta) {}
+    fn set_delay(&mut self, _: Duration) {}
 
-    fn delay(&self) -> TimeDelta {
-        TimeDelta::zero()
+    fn delay(&self) -> Duration {
+        Duration::ZERO
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
@@ -351,10 +351,10 @@ impl Type for Component {
         todo!()
     }
 
-    fn set_delay(&mut self, _: TimeDelta) {}
+    fn set_delay(&mut self, _: Duration) {}
 
-    fn delay(&self) -> TimeDelta {
-        TimeDelta::zero()
+    fn delay(&self) -> Duration {
+        Duration::ZERO
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
@@ -441,10 +441,10 @@ impl Type for Process {
         todo!()
     }
 
-    fn set_delay(&mut self, _: TimeDelta) {}
+    fn set_delay(&mut self, _: Duration) {}
 
-    fn delay(&self) -> TimeDelta {
-        TimeDelta::zero()
+    fn delay(&self) -> Duration {
+        Duration::ZERO
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
