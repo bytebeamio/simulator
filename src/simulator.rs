@@ -114,7 +114,13 @@ impl StreamMetrics {
 
 impl Type for StreamMetrics {
     fn timestamp(&self) -> DateTime<Utc> {
-        self.timestamp
+        todo!()
+    }
+
+    fn set_delay(&mut self, _: TimeDelta) {}
+
+    fn delay(&self) -> TimeDelta {
+        todo!()
     }
 
     fn payload(&self, _: DateTime<Utc>, _: u32) -> Payload {
@@ -160,20 +166,20 @@ async fn push_data(
 
             let (push, till) = loop {
                 if data_array.points.len() >= max_buf_size {
-                    break (data_array.take(), start.map(|(init, _)| init + last_time));
+                    break (data_array.take(), start.map(|init| init + last_time));
                 }
 
                 let Some(rec) = iter.next() else {
                     if data_array.points.is_empty() {
                         break 'refresh;
                     }
-                    break (data_array.take(), start.map(|(init, _)| init + last_time));
+                    break (data_array.take(), start.map(|init| init + last_time));
                 };
 
                 sequence %= u32::MAX;
                 sequence += 1;
-                if let Some((init, ts)) = start {
-                    let diff: TimeDelta = rec.timestamp() - ts;
+                if let Some(init) = start {
+                    let diff: TimeDelta = rec.delay();
                     let duration = diff.abs().to_std().unwrap();
                     let mut push = None;
                     if duration > timeout {
@@ -190,7 +196,7 @@ async fn push_data(
                 } else {
                     first_time = Utc::now();
                     data_array.points.push(rec.payload(first_time, sequence));
-                    start = Some((Instant::now(), rec.timestamp()));
+                    start = Some(Instant::now());
                     last_time = Duration::ZERO;
                 }
 
