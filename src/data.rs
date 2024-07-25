@@ -160,8 +160,6 @@ pub struct Can {
     dbc_ver: u16,
     #[serde(skip)]
     delay: Duration,
-    #[serde(skip)]
-    duration: Duration,
     #[serde(deserialize_with = "deserialize_naive_datetime")]
     timestamp: DateTime<Utc>,
 }

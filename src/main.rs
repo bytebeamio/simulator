@@ -23,8 +23,8 @@ mod simulator;
 mod sysinfo;
 
 use data::{
-    Can, Historical, Imu, RideDetail, RideStatistics, RideSummary, Stop, VehicleLocation,
-    VehicleState, VicRequest,
+    /* Imu, RideDetail, RideStatistics, RideSummary, Stop, VehicleLocation, VehicleState, VicRequest,*/
+    Can, Historical,
 };
 use mqtt::{push_mqtt_metrics, Mqtt};
 
@@ -141,14 +141,14 @@ fn main() {
 
     let mut historical = Historical::new();
     historical.load::<Can>("C2C_CAN");
-    historical.load::<Imu>("imu_sensor");
-    historical.load::<RideDetail>("ride_detail");
-    historical.load::<RideSummary>("ride_summary");
-    historical.load::<RideStatistics>("ride_statistics");
-    historical.load::<Stop>("stop");
-    historical.load::<VehicleLocation>("vehicle_location");
-    historical.load::<VehicleState>("vehicle_state");
-    historical.load::<VicRequest>("vic_request");
+    // historical.load::<Imu>("imu_sensor");
+    // historical.load::<RideDetail>("ride_detail");
+    // historical.load::<RideSummary>("ride_summary");
+    // historical.load::<RideStatistics>("ride_statistics");
+    // historical.load::<Stop>("stop");
+    // historical.load::<VehicleLocation>("vehicle_location");
+    // historical.load::<VehicleState>("vehicle_state");
+    // historical.load::<VicRequest>("vic_request");
     let data = Arc::new(historical);
 
     info!("Data loaded into memory");
