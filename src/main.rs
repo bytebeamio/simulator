@@ -53,9 +53,9 @@ async fn main() {
     let path = var("CONFIG_FILE").expect("Missing env variable");
     let rdr = BufReader::new(File::open(path).unwrap());
     let config: Config = serde_json::from_reader(rdr).unwrap();
-    if config.project_id != "demo" {
-        panic!("Non-demo tenant: {}", config.project_id);
-    }
+    // if config.project_id != "demo" {
+    //     panic!("Non-demo tenant: {}", config.project_id);
+    // }
     let config = Arc::new(config);
 
     let start_id = var("START")
@@ -128,7 +128,7 @@ impl GpsTrack {
 }
 
 // const GPS_RATE: usize = 1; // messages/sec i.e. 60 messages in ~60s
-async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
+async fn push_gps(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
     let trace_list = {
         let mut gps_path = current_dir().unwrap();
         gps_path.push("paths");
@@ -153,7 +153,7 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
         let start = Instant::now();
         let mut gps_array = PayloadArray {
             // topic: format!("/tenants/demo/devices/{client_id}/events/vehicle_location/jsonarray"),
-            topic: format!("/tenants/demo/devices/{client_id}/events/gps/jsonarray"),
+            topic: format!("/tenants/{tenant}/devices/{client_id}/events/gps/jsonarray"),
             points: vec![],
             compression: false,
         };
@@ -176,7 +176,7 @@ async fn push_gps(tx: Sender<PayloadArray>, client_id: u32) {
 }
 
 // const CAN_RATE: usize = 700; // messages/sec i.e. 100 messages in ~140ms
-async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
+async fn push_can(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
     let get_reader = || {
         let mut can_path = current_dir().unwrap();
         can_path.push("can");
@@ -219,7 +219,9 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
         if points.len() >= 100 {
             let points = mem::take(&mut points);
             let gps_array = PayloadArray {
-                topic: format!("/tenants/demo/devices/{client_id}/events/can_raw/jsonarray/lz4"),
+                topic: format!(
+                    "/tenants/{tenant}/devices/{client_id}/events/can_raw/jsonarray/lz4"
+                ),
                 points,
                 compression: true,
             };
@@ -241,7 +243,7 @@ async fn push_can(tx: Sender<PayloadArray>, client_id: u32) {
 }
 
 // const CAN_RATE: usize = 10; // messages/sec i.e. 100 messages in ~140ms
-async fn push_imu(tx: Sender<PayloadArray>, client_id: u32) {
+async fn push_imu(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
     let mut sequence = 0;
     let mut total_time = 0.0;
     let mut clock = interval(Duration::from_millis(200));
@@ -250,7 +252,7 @@ async fn push_imu(tx: Sender<PayloadArray>, client_id: u32) {
         clock.tick().await;
         let start = Instant::now();
         let mut gps_array = PayloadArray {
-            topic: format!("/tenants/demo/devices/{client_id}/events/imu_sensor/jsonarray/lz4"),
+            topic: format!("/tenants/{tenant}/devices/{client_id}/events/imu_sensor/jsonarray/lz4"),
             points: vec![],
             compression: true,
         };
@@ -284,7 +286,7 @@ async fn push_imu(tx: Sender<PayloadArray>, client_id: u32) {
 }
 
 // const CAN_RATE: usize = 0.016; // messages/sec i.e. 1 message in 60s
-async fn push_heartbeat(tx: Sender<PayloadArray>, client_id: u32) {
+async fn push_heartbeat(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
     let mut sequence = 0;
     let mut total_time = 0.0;
     let mut clock = interval(Duration::from_millis(140));
@@ -292,7 +294,7 @@ async fn push_heartbeat(tx: Sender<PayloadArray>, client_id: u32) {
         clock.tick().await;
         let start = Instant::now();
         let mut gps_array = PayloadArray {
-            topic: format!("/tenants/demo/devices/{client_id}/events/device_shadow/jsonarray"),
+            topic: format!("/tenants/{tenant}/devices/{client_id}/events/device_shadow/jsonarray"),
             points: vec![],
             compression: false,
         };
@@ -314,6 +316,7 @@ async fn push_heartbeat(tx: Sender<PayloadArray>, client_id: u32) {
 async fn single_device(client_id: u32, config: Arc<Config>, with_actions: bool) {
     let (tx, rx) = channel(1);
 
+    let tenant = &config.project_id;
     let port = if config.port == 0 {
         // Get random port between 1883/4/5 for local testing!
         1883 + rand::thread_rng().gen_range(0..3)
@@ -353,12 +356,12 @@ async fn single_device(client_id: u32, config: Arc<Config>, with_actions: bool) 
     });
 
     if !with_actions {
-        handle.spawn(push_gps(tx.clone(), client_id));
+        handle.spawn(push_gps(tx.clone(), tenant.clone(), client_id));
     }
 
-    // handle.spawn(push_can(tx.clone(), client_id));
-    // handle.spawn(push_imu(tx.clone(), client_id));
-    // handle.spawn(push_heartbeat(tx.clone(), client_id));
+    handle.spawn(push_can(tx.clone(), tenant.clone(), client_id));
+    handle.spawn(push_imu(tx.clone(), tenant.clone(), client_id));
+    handle.spawn(push_heartbeat(tx.clone(), tenant.to_owned(), client_id));
 
     while let Some(o) = handle.join_next().await {
         if let Err(e) = o {
