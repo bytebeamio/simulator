@@ -167,7 +167,6 @@ async fn push_data<T: Type>(
             }
             error!("{e}; topic={topic}");
         }
-        info!("refreshing {client_id}/{stream}");
     }
 }
 
