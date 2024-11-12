@@ -5,6 +5,7 @@ use lz4_flex::frame::FrameEncoder;
 use rand::{rngs::StdRng, Rng};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sysinfo::System;
 
 pub trait Type: std::fmt::Debug + Send + Sync + 'static {
     fn generate(rng: &mut StdRng) -> Self;
@@ -154,9 +155,13 @@ pub struct Resource {
 
 impl Type for Resource {
     fn generate(rng: &mut StdRng) -> Self {
+        let system = System::new_all();
+        let total_memory = system.total_memory();
+        let used_memory = system.used_memory();
+
         Self {
-            cpu: rng.gen_range(0..100),
-            memory: rng.gen_range(0..100),
+            cpu: system.global_cpu_info().cpu_usage() as u32,
+            memory: (used_memory * 100 / total_memory) as u32,
             upload: rng.gen_range(0..100),
             download: rng.gen_range(0..100),
         }
