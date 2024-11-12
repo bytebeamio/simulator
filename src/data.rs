@@ -24,6 +24,7 @@ pub struct Payload {
     pub payload: Value,
 }
 
+#[derive(Debug)]
 pub struct PayloadArray {
     pub points: Vec<Payload>,
     pub compression: bool,
@@ -60,7 +61,7 @@ impl Data for PayloadArray {
 
 pub struct ActionResponse {
     pub sequence: u32,
-    pub action_id: u32,
+    pub action_id: String,
     pub progress: u32,
     pub state: String,
     pub errors: Vec<String>,

@@ -86,7 +86,7 @@ impl Mqtt {
                         Event::Incoming(Incoming::Publish(Publish { payload, .. })) => {
                             let client = self.client.clone();
                             let action: Action = serde_json::from_slice(payload).unwrap();
-                            let action_id = action.action_id.parse().unwrap();
+                            let action_id = action.action_id.to_owned();
                             info!("Recevied: {action_id}");
                             let topic =
                                 format!("/tenants/{project_id}/devices/{client_id}/action/status");
@@ -98,7 +98,7 @@ impl Mqtt {
                                                 points: vec![ActionResponse {
                                                     sequence,
                                                     progress: sequence * 10,
-                                                    action_id,
+                                                    action_id: action_id.clone(),
                                                     state: match sequence {
                                                         0 => "Started",
                                                         10 => "Completed",
