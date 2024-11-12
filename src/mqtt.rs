@@ -119,7 +119,7 @@ impl Mqtt {
                                             ) {
                                                 error!("{client_id}: {e}")
                                             }
-                                            sleep(Duration::from_millis(100)).await;
+                                            sleep(Duration::from_secs(1)).await;
                                         }
                                     }
                                     "play_audio" => {
