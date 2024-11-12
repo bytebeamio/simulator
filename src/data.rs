@@ -61,6 +61,7 @@ impl Data for PayloadArray {
 pub struct ActionResponse {
     pub sequence: u32,
     pub action_id: u32,
+    pub progress: u32,
     pub state: String,
     pub errors: Vec<String>,
 }
@@ -73,7 +74,7 @@ impl ActionResponse {
             payload: json!({
                 "action_id": self.action_id,
                 "state":  self.state,
-                "progress": self.sequence,
+                "progress": self.progress,
                 "errors": self.errors,
             }),
         }

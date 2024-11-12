@@ -7,7 +7,7 @@ use std::{
 };
 
 use chrono::Utc;
-use log::{debug, error};
+use log::{debug, error, info};
 use rumqttc::{AsyncClient, Event, EventLoop, Incoming, MqttOptions, Outgoing, Publish, QoS};
 use serde::Deserialize;
 use serde_json::json;
@@ -87,19 +87,21 @@ impl Mqtt {
                             let client = self.client.clone();
                             let action: Action = serde_json::from_slice(payload).unwrap();
                             let action_id = action.action_id.parse().unwrap();
+                            info!("Recevied: {action_id}");
                             let topic =
                                 format!("/tenants/{project_id}/devices/{client_id}/action/status");
                             spawn(async move {
                                 match action.name.as_str() {
                                     "update_config" | "update_firmware" => {
-                                        for sequence in 0..=100 {
+                                        for sequence in 0..=10 {
                                             let response_array = PayloadArray {
                                                 points: vec![ActionResponse {
                                                     sequence,
+                                                    progress: sequence * 10,
                                                     action_id,
                                                     state: match sequence {
                                                         0 => "Started",
-                                                        100 => "Completed",
+                                                        10 => "Completed",
                                                         _ => "Running",
                                                     }
                                                     .to_string(),
@@ -117,14 +119,14 @@ impl Mqtt {
                                             ) {
                                                 error!("{client_id}: {e}")
                                             }
-                                            sleep(Duration::from_secs(1)).await;
+                                            sleep(Duration::from_millis(100)).await;
                                         }
                                     }
                                     "play_audio" => {
-                                        sleep(Duration::from_secs(1)).await;
                                         let response_array = PayloadArray {
                                             points: vec![ActionResponse {
-                                                sequence: 100,
+                                                sequence: 1,
+                                                progress: 100,
                                                 action_id,
                                                 state: "Completed".to_string(),
                                                 errors: vec![],
@@ -145,7 +147,8 @@ impl Mqtt {
                                     name => {
                                         let response_array = PayloadArray {
                                             points: vec![ActionResponse {
-                                                sequence: 100,
+                                                sequence: 1,
+                                                progress: 100,
                                                 action_id,
                                                 state: "Failed".to_string(),
                                                 errors: vec![format!("Unsupported action: {name}")],
@@ -164,6 +167,8 @@ impl Mqtt {
                                         }
                                     }
                                 }
+
+                                info!("Responded to: {action_id}");
                             });
                         }
                         Event::Outgoing(Outgoing::Publish(_)) => unsafe {
