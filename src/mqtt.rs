@@ -108,7 +108,7 @@ impl Mqtt {
                                                     errors: vec![],
                                                 }
                                                 .as_payload()],
-                                                compression: true,
+                                                compression: false,
                                             };
                                             let payload = response_array.serialized();
                                             if let Err(e) = client.try_publish(
@@ -132,7 +132,7 @@ impl Mqtt {
                                                 errors: vec![],
                                             }
                                             .as_payload()],
-                                            compression: true,
+                                            compression: false,
                                         };
                                         let payload = response_array.serialized();
                                         if let Err(e) = client.try_publish(
@@ -154,7 +154,7 @@ impl Mqtt {
                                                 errors: vec![format!("Unsupported action: {name}")],
                                             }
                                             .as_payload()],
-                                            compression: true,
+                                            compression: false,
                                         };
                                         let payload = response_array.serialized();
                                         if let Err(e) = client.try_publish(
