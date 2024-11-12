@@ -127,7 +127,7 @@ impl Mqtt {
                                             points: vec![ActionResponse {
                                                 sequence: 1,
                                                 progress: 100,
-                                                action_id,
+                                                action_id: action_id.clone(),
                                                 state: "Completed".to_string(),
                                                 errors: vec![],
                                             }
@@ -149,7 +149,7 @@ impl Mqtt {
                                             points: vec![ActionResponse {
                                                 sequence: 1,
                                                 progress: 100,
-                                                action_id,
+                                                action_id: action_id.clone(),
                                                 state: "Failed".to_string(),
                                                 errors: vec![format!("Unsupported action: {name}")],
                                             }

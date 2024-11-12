@@ -91,12 +91,11 @@ pub struct DeviceShadow {
 
 impl Type for DeviceShadow {
     fn generate(rng: &mut StdRng) -> Self {
-        let mut data = Self::default();
-        data.battery = rng.gen_range(0..100);
-        data.gsm = rng.gen_range(0..100);
-        data.wifi = rng.gen_range(0..100);
-
-        data
+        Self {
+            battery: rng.gen_range(0..100),
+            gsm: rng.gen_range(0..100),
+            wifi: rng.gen_range(0..100),
+        }
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
@@ -122,11 +121,10 @@ pub struct Transaction {
 
 impl Type for Transaction {
     fn generate(rng: &mut StdRng) -> Self {
-        let mut data = Self::default();
-        data.amt = rng.gen_range(0..1000);
-        data.customer = format!("User{}", rng.gen_range(0..10000000));
-
-        data
+        Self {
+            amt: rng.gen_range(0..1000),
+            customer: format!("User{}", rng.gen_range(0..10000000)),
+        }
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
@@ -156,13 +154,12 @@ pub struct Resource {
 
 impl Type for Resource {
     fn generate(rng: &mut StdRng) -> Self {
-        let mut data = Self::default();
-        data.cpu = rng.gen_range(0..100);
-        data.memory = rng.gen_range(0..100);
-        data.upload = rng.gen_range(0..100);
-        data.download = rng.gen_range(0..100);
-
-        data
+        Self {
+            cpu: rng.gen_range(0..100),
+            memory: rng.gen_range(0..100),
+            upload: rng.gen_range(0..100),
+            download: rng.gen_range(0..100),
+        }
     }
 
     fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
