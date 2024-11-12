@@ -73,7 +73,7 @@ impl Mqtt {
     pub async fn start(&mut self, project_id: String, client_id: u32) {
         self.client
             .subscribe(
-                format!("/tenants/demo/devices/{client_id}/actions"),
+                format!("/tenants/{project_id}/devices/{client_id}/actions"),
                 QoS::AtMostOnce,
             )
             .await
