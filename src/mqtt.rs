@@ -30,6 +30,7 @@ pub struct Action {
     // action id
     #[serde(alias = "id")]
     pub action_id: String,
+    pub name: String,
 }
 
 // #[derive(Debug, Clone)]
@@ -89,20 +90,79 @@ impl Mqtt {
                             let topic =
                                 format!("/tenants/{project_id}/devices/{client_id}/action/status");
                             spawn(async move {
-                                for sequence in 1..=10 {
-                                    let response_array = PayloadArray {
-                                        points: vec![ActionResponse::as_payload(
-                                            sequence, action_id,
-                                        )],
-                                        compression: true,
-                                    };
-                                    let payload = response_array.serialized();
-                                    if let Err(e) =
-                                        client.try_publish(&topic, QoS::AtLeastOnce, false, payload)
-                                    {
-                                        error!("{client_id}: {e}")
+                                match action.name.as_str() {
+                                    "update_config" | "update_firmware" => {
+                                        for sequence in 0..=100 {
+                                            let response_array = PayloadArray {
+                                                points: vec![ActionResponse {
+                                                    sequence,
+                                                    action_id,
+                                                    state: match sequence {
+                                                        0 => "Started",
+                                                        100 => "Completed",
+                                                        _ => "Running",
+                                                    }
+                                                    .to_string(),
+                                                    errors: vec![],
+                                                }
+                                                .as_payload()],
+                                                compression: true,
+                                            };
+                                            let payload = response_array.serialized();
+                                            if let Err(e) = client.try_publish(
+                                                &topic,
+                                                QoS::AtLeastOnce,
+                                                false,
+                                                payload,
+                                            ) {
+                                                error!("{client_id}: {e}")
+                                            }
+                                            sleep(Duration::from_secs(1)).await;
+                                        }
                                     }
-                                    sleep(Duration::from_secs(1)).await;
+                                    "play_audio" => {
+                                        sleep(Duration::from_secs(1)).await;
+                                        let response_array = PayloadArray {
+                                            points: vec![ActionResponse {
+                                                sequence: 100,
+                                                action_id,
+                                                state: "Completed".to_string(),
+                                                errors: vec![],
+                                            }
+                                            .as_payload()],
+                                            compression: true,
+                                        };
+                                        let payload = response_array.serialized();
+                                        if let Err(e) = client.try_publish(
+                                            &topic,
+                                            QoS::AtLeastOnce,
+                                            false,
+                                            payload,
+                                        ) {
+                                            error!("{client_id}: {e}")
+                                        }
+                                    }
+                                    name => {
+                                        let response_array = PayloadArray {
+                                            points: vec![ActionResponse {
+                                                sequence: 100,
+                                                action_id,
+                                                state: "Failed".to_string(),
+                                                errors: vec![format!("Unsupported action: {name}")],
+                                            }
+                                            .as_payload()],
+                                            compression: true,
+                                        };
+                                        let payload = response_array.serialized();
+                                        if let Err(e) = client.try_publish(
+                                            &topic,
+                                            QoS::AtLeastOnce,
+                                            false,
+                                            payload,
+                                        ) {
+                                            error!("{client_id}: {e}")
+                                        }
+                                    }
                                 }
                             });
                         }

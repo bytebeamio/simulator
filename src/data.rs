@@ -595,21 +595,23 @@ impl Type for RideDetail {
     }
 }
 
-pub struct ActionResponse;
+pub struct ActionResponse {
+    pub sequence: u32,
+    pub action_id: u32,
+    pub state: String,
+    pub errors: Vec<String>,
+}
+
 impl ActionResponse {
-    pub fn as_payload(sequence: u32, action_id: u32) -> Payload {
+    pub fn as_payload(self) -> Payload {
         Payload {
-            sequence,
+            sequence: self.sequence,
             timestamp: Utc::now(),
             payload: json!({
-                "action_id": action_id,
-                "state": match sequence {
-                    0 => "Started",
-                    100 => "Completed",
-                    _ => "Running",
-                },
-                "progress": sequence * 10,
-                "errors": [],
+                "action_id": self.action_id,
+                "state":  self.state,
+                "progress": self.sequence,
+                "errors": self.errors,
             }),
         }
     }
