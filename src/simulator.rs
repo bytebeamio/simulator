@@ -204,7 +204,7 @@ pub async fn single_device(client_id: u32, config: Arc<Config>, client: AsyncCli
         config.project_id.clone(),
         client_id,
         "transactions",
-        1000,
+        100,
         true,
         rng.clone(),
         metrics_tx.clone(),
