@@ -117,12 +117,14 @@ impl Type for DeviceShadow {
 #[derive(Debug, Default, Deserialize)]
 pub struct Transaction {
     amt: u32,
+    customer: String,
 }
 
 impl Type for Transaction {
     fn generate(rng: &mut StdRng) -> Self {
         let mut data = Self::default();
         data.amt = rng.gen_range(0..1000);
+        data.customer = format!("User{}", rng.gen_range(0..10000000));
 
         data
     }
@@ -134,7 +136,7 @@ impl Type for Transaction {
             payload: json!({
                 "Amount": self.amt,
                 "Currency": "Rupees",
-                "CustomerName": "customerA",
+                "CustomerName": self.customer,
                 "MerchantName": "merchantA",
                 "PaymentInstrument": "UPI",
                 "Status": "Successful",
