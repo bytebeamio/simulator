@@ -19,7 +19,7 @@ use tokio::{
 };
 
 use crate::{
-    data::{Data, Resource},
+    data::{Data, Resource, Transaction},
     Config,
 };
 
@@ -184,7 +184,7 @@ pub async fn single_device(client_id: u32, config: Arc<Config>, client: AsyncCli
         config.project_id.clone(),
         client_id,
         "device_shadow",
-        60,
+        30,
         false,
         rng.clone(),
         metrics_tx.clone(),
@@ -195,6 +195,16 @@ pub async fn single_device(client_id: u32, config: Arc<Config>, client: AsyncCli
         client_id,
         "resource_usage",
         60,
+        false,
+        rng.clone(),
+        metrics_tx.clone(),
+    ));
+    spawn(push_data::<Transaction>(
+        client.clone(),
+        config.project_id.clone(),
+        client_id,
+        "transactions",
+        1000,
         true,
         rng.clone(),
         metrics_tx.clone(),

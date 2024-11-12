@@ -114,6 +114,36 @@ impl Type for DeviceShadow {
 }
 
 #[derive(Debug, Default, Deserialize)]
+pub struct Transaction {
+    amt: u32,
+}
+
+impl Type for Transaction {
+    fn generate(rng: &mut StdRng) -> Self {
+        let mut data = Self::default();
+        data.amt = rng.gen_range(0..1000);
+
+        data
+    }
+
+    fn payload(&self, timestamp: DateTime<Utc>, sequence: u32) -> Payload {
+        Payload {
+            sequence,
+            timestamp,
+            payload: json!({
+                "Amount": self.amt,
+                "Currency": "Rupees",
+                "CustomerName": "customerA",
+                "MerchantName": "merchantA",
+                "PaymentInstrument": "UPI",
+                "Status": "Successful",
+                "TransactionId": "",
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
 pub struct Resource {
     cpu: u32,
     memory: u32,
