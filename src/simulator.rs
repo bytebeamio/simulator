@@ -8,19 +8,22 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use flume::{bounded, Sender};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rumqttc::{mqttbytes::QoS, AsyncClient};
 use serde::Serialize;
 use serde_json::json;
 use tokio::{
     spawn,
-    time::{interval, sleep, sleep_until, Instant},
+    time::{interval, sleep},
 };
 
-use crate::{data::Data, Config};
+use crate::{
+    data::{Data, Resource},
+    Config,
+};
 
-use super::data::{DeviceShadow, Historical, Payload, PayloadArray, Type};
+use super::data::{DeviceShadow, Payload, PayloadArray, Type};
 
 static mut DELAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
 static mut MAX_DELAY: AtomicUsize = AtomicUsize::new(0);
@@ -113,13 +116,7 @@ impl StreamMetrics {
 }
 
 impl Type for StreamMetrics {
-    fn timestamp(&self) -> DateTime<Utc> {
-        todo!()
-    }
-
-    fn set_delay(&mut self, _: Duration) {}
-
-    fn delay(&self) -> Duration {
+    fn generate(_: &mut StdRng) -> Self {
         todo!()
     }
 
@@ -132,109 +129,49 @@ impl Type for StreamMetrics {
     }
 }
 
-async fn push_data(
+async fn push_data<T: Type>(
     client: AsyncClient,
     project_id: String,
     client_id: u32,
     stream: &str,
-    max_buf_size: usize,
-    timeout: Duration,
-    compression: bool,
-    data: Arc<Historical>,
+    timeout: u64,
+    randomness: bool,
     mut rng: StdRng,
-    (refresh_low, refresh_high): (u64, u64),
     metrics_tx: Sender<Payload>,
 ) {
     let mut sequence = 0;
-    let mut data_array = PayloadArray::new(max_buf_size, compression);
-    let mut metrics = StreamMetrics::new(stream, max_buf_size, metrics_tx);
+    let mut metrics = StreamMetrics::new(stream, 1, metrics_tx);
+    let default_diff = Duration::from_secs(timeout);
 
-    let mut topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
-    if compression {
-        topic.push_str("/lz4")
-    }
+    let topic = format!("/tenants/{project_id}/devices/{client_id}/events/{stream}/jsonarray");
 
     loop {
-        // Some data streams need not see much data
-        let refresh_time = Duration::from_secs(rng.gen_range(refresh_low..refresh_high));
-        sleep(refresh_time).await;
-        let mut iter = data.get_random(stream, &mut rng).iter();
-        let mut first_time = Utc::now();
-        let mut start = None;
-        'refresh: loop {
-            let mut last_time = Duration::ZERO;
+        sleep(if randomness {
+            Duration::from_secs(rng.gen_range(0..timeout))
+        } else {
+            default_diff
+        })
+        .await;
+        let mut push = PayloadArray::new(1, false);
+        let generated = T::generate(&mut rng);
+        sequence += 1;
+        push.points.push(generated.payload(Utc::now(), sequence));
 
-            let (push, till) = loop {
-                if data_array.points.len() >= max_buf_size {
-                    break (data_array.take(), start.map(|init| init + last_time));
-                }
+        metrics.add_point();
+        metrics.add_batch();
+        metrics.try_send();
 
-                let Some(rec) = iter.next() else {
-                    if data_array.points.is_empty() {
-                        break 'refresh;
-                    }
-                    break (data_array.take(), start.map(|init| init + last_time));
-                };
-
-                sequence %= u32::MAX;
-                sequence += 1;
-                if let Some(init) = start {
-                    let duration = rec.delay();
-                    let mut push = None;
-                    if duration > timeout {
-                        push = Some((data_array.take(), Some(init + duration)));
-                    } else {
-                        last_time = duration;
-                    }
-                    data_array
-                        .points
-                        .push(rec.payload(first_time + duration, sequence));
-                    if let Some(push) = push {
-                        break push;
-                    }
-                } else {
-                    first_time = Utc::now();
-                    data_array.points.push(rec.payload(first_time, sequence));
-                    start = Some(Instant::now());
-                    last_time = Duration::ZERO;
-                }
-
-                metrics.add_point();
-            };
-
-            if let Some(till) = till {
-                sleep_until(till).await;
-                let elapsed = Instant::now() - till;
-                if elapsed > Duration::from_millis(10) {
-                    let delay = elapsed.as_millis() as usize;
-                    warn!("Slow batching: {stream} for {client_id} by {}ms", delay);
-                    unsafe {
-                        DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
-                        MAX_DELAY.fetch_max(delay, Ordering::SeqCst);
-                    }
-                }
+        if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, push.serialized()) {
+            unsafe {
+                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
             }
-
-            metrics.add_batch();
-            metrics.try_send();
-
-            if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, push.serialized()) {
-                unsafe {
-                    FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-                }
-                error!("{e}; topic={topic}");
-            }
+            error!("{e}; topic={topic}");
         }
         info!("refreshing {client_id}/{stream}");
     }
 }
 
-pub async fn single_device(
-    client_id: u32,
-    config: Arc<Config>,
-    client: AsyncClient,
-    data: Arc<Historical>,
-) {
+pub async fn single_device(client_id: u32, config: Arc<Config>, client: AsyncClient) {
     let mut rng = StdRng::from_entropy();
 
     // Wait a few seconds at random to deter waves
@@ -243,127 +180,24 @@ pub async fn single_device(
     // PERF sending to a channel should ideally be like pushing into a buf
     let (metrics_tx, metrics_rx) = bounded(1000);
 
-    spawn(push_data(
+    spawn(push_data::<DeviceShadow>(
         client.clone(),
         config.project_id.clone(),
         client_id,
-        "C2C_CAN",
-        900,
-        Duration::from_secs(60),
-        true,
-        data.clone(),
+        "device_shadow",
+        60,
+        false,
         rng.clone(),
-        (0, 1),
         metrics_tx.clone(),
     ));
-    // spawn(push_data(
-    //     client.clone(),
-    //     config.project_id.clone(),
-    //     client_id,
-    //     "imu_sensor",
-    //     100,
-    //     Duration::from_secs(60),
-    //     true,
-    //     data.clone(),
-    //     rng.clone(),
-    //     (0, 10),
-    //     metrics_tx.clone(),
-    // ));
-    // spawn(push_data(
-    //     client.clone(),
-    //     config.project_id.clone(),
-    //     client_id,
-    //     "ride_detail",
-    //     1,
-    //     Duration::from_secs(1),
-    //     false,
-    //     data.clone(),
-    //     rng.clone(),
-    //     (10_000, 10_000_000),
-    //     metrics_tx.clone(),
-    // ));
-    // spawn(push_data(
-    //     client.clone(),
-    //     config.project_id.clone(),
-    //     client_id,
-    //     "ride_summary",
-    //     1,
-    //     Duration::from_secs(1),
-    //     false,
-    //     data.clone(),
-    //     rng.clone(),
-    //     (10_000, 10_000_000),
-    //     metrics_tx.clone(),
-    // ));
-    // spawn(push_data(
-    //     client.clone(),
-    //     config.project_id.clone(),
-    //     client_id,
-    //     "ride_statistics",
-    //     1,
-    //     Duration::from_secs(1),
-    //     false,
-    //     data.clone(),
-    //     rng.clone(),
-    //     (10_000, 10_000_000),
-    //     metrics_tx.clone(),
-    // ));
-    // spawn(push_data(
-    //     client.clone(),
-    //     config.project_id.clone(),
-    //     client_id,
-    //     "stop",
-    //     10,
-    //     Duration::from_secs(10),
-    //     false,
-    //     data.clone(),
-    //     rng.clone(),
-    //     (100, 10_000),
-    //     metrics_tx.clone(),
-    // ));
-    // spawn(push_data(
-    //     client.clone(),
-    //     config.project_id.clone(),
-    //     client_id,
-    //     "vehicle_location",
-    //     10,
-    //     Duration::from_secs(10),
-    //     false,
-    //     data.clone(),
-    //     rng.clone(),
-    //     (100, 10_000),
-    //     metrics_tx.clone(),
-    // ));
-    // spawn(push_data(
-    //     client.clone(),
-    //     config.project_id.clone(),
-    //     client_id,
-    //     "vehicle_state",
-    //     1,
-    //     Duration::from_secs(1),
-    //     false,
-    //     data.clone(),
-    //     rng.clone(),
-    //     (100, 10_000),
-    //     metrics_tx.clone(),
-    // ));
-    // spawn(push_data(
-    //     client.clone(),
-    //     config.project_id.clone(),
-    //     client_id,
-    //     "vic_request",
-    //     1,
-    //     Duration::from_secs(1),
-    //     false,
-    //     data.clone(),
-    //     rng.clone(),
-    //     (100, 10_000),
-    //     metrics_tx.clone(),
-    // ));
-    spawn(push_device_shadow(
+    spawn(push_data::<Resource>(
         client.clone(),
         config.project_id.clone(),
         client_id,
+        "resource_usage",
+        60,
+        true,
+        rng.clone(),
         metrics_tx.clone(),
     ));
 
@@ -385,55 +219,6 @@ pub async fn single_device(
             client.try_publish(&topic, QoS::AtLeastOnce, false, array.take().serialized())
         {
             error!("{e}; topic={topic}")
-        }
-    }
-}
-
-async fn push_device_shadow(
-    client: AsyncClient,
-    project_id: String,
-    client_id: u32,
-    metrics_tx: Sender<Payload>,
-) {
-    let mut sequence = 0;
-    let timeout = Duration::from_secs(10);
-    let mut interval = interval(timeout);
-    let topic = format!("/tenants/{project_id}/devices/{client_id}/events/device_shadow/jsonarray");
-    let mut metrics = StreamMetrics::new("device_shadow", 1, metrics_tx);
-
-    loop {
-        let start = Instant::now();
-        interval.tick().await;
-        let elapsed = start.elapsed().saturating_sub(timeout);
-        if elapsed > Duration::from_millis(10) {
-            let delay = elapsed.as_millis() as usize;
-            warn!(
-                "Slow batching: device_shadow for {client_id} by {}ms",
-                delay
-            );
-            unsafe {
-                DELAYED_COUNT.fetch_add(1, Ordering::SeqCst);
-                MAX_DELAY.fetch_max(delay, Ordering::SeqCst);
-            }
-        }
-
-        sequence += 1;
-        let data_array = PayloadArray {
-            points: vec![DeviceShadow.payload(Utc::now(), sequence)],
-            compression: false,
-        };
-
-        let client = client.clone();
-        let topic = topic.clone();
-        metrics.add_point();
-        metrics.add_batch();
-        metrics.try_send();
-        if let Err(e) = client.try_publish(&topic, QoS::AtMostOnce, false, data_array.serialized())
-        {
-            unsafe {
-                FAILURE_COUNT.fetch_add(1, Ordering::SeqCst);
-            }
-            error!("{client_id}/device_shadow: {e}");
         }
     }
 }

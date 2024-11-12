@@ -20,12 +20,7 @@ use tracing_subscriber::EnvFilter;
 mod data;
 mod mqtt;
 mod simulator;
-mod sysinfo;
 
-use data::{
-    /* Imu, RideDetail, RideStatistics, RideSummary, Stop, VehicleLocation, VehicleState, VicRequest,*/
-    Can, Historical,
-};
 use mqtt::{push_mqtt_metrics, Mqtt};
 
 #[derive(Debug, Deserialize)]
@@ -130,26 +125,12 @@ fn main() {
                     mqtt_config.project_id
                 );
                 tasks.spawn(push_simulator_metrics(topic, client.clone()));
-                let stat_collector = sysinfo::StatCollector::new(&mqtt_config.project_id, 1);
-                tasks.spawn(stat_collector.start(client));
 
                 while let Some(Err(e)) = tasks.join_next().await {
                     error!("{e}")
                 }
             })
     });
-
-    let mut historical = Historical::new();
-    historical.load::<Can>("C2C_CAN");
-    // historical.load::<Imu>("imu_sensor");
-    // historical.load::<RideDetail>("ride_detail");
-    // historical.load::<RideSummary>("ride_summary");
-    // historical.load::<RideStatistics>("ride_statistics");
-    // historical.load::<Stop>("stop");
-    // historical.load::<VehicleLocation>("vehicle_location");
-    // historical.load::<VehicleState>("vehicle_state");
-    // historical.load::<VicRequest>("vic_request");
-    let data = Arc::new(historical);
 
     info!("Data loaded into memory");
 
@@ -168,8 +149,7 @@ fn main() {
             let mut tasks: JoinSet<()> = JoinSet::new();
             for (i, client) in device_client_mapping {
                 let config = config.clone();
-                let data = data.clone();
-                tasks.spawn(async move { single_device(i, config, client, data).await });
+                tasks.spawn(async move { single_device(i, config, client).await });
             }
 
             loop {
