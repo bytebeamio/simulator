@@ -33,15 +33,15 @@ impl Mqtt {
         let mut success = 0;
         let mut failure = 0;
 
-        if with_actions {
-            self.client
-                .subscribe(
-                    format!("/tenants/demo/devices/{client_id}/actions"),
-                    QoS::AtMostOnce,
-                )
-                .await
-                .unwrap();
-        }
+        // if with_actions {
+        //     self.client
+        //         .subscribe(
+        //             format!("/tenants/demo/devices/{client_id}/actions"),
+        //             QoS::AtMostOnce,
+        //         )
+        //         .await
+        //         .unwrap();
+        // }
 
         loop {
             let start = Instant::now();

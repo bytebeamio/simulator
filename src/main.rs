@@ -146,7 +146,7 @@ async fn push_gps(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
 
     let mut sequence = 0;
     let mut total_time = 0.0;
-    let mut clock = interval(Duration::from_secs(1));
+    let mut clock = interval(Duration::from_millis(1000));
     let mut rng = StdRng::from_entropy();
     loop {
         clock.tick().await;
@@ -246,7 +246,7 @@ async fn push_can(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
 async fn push_imu(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
     let mut sequence = 0;
     let mut total_time = 0.0;
-    let mut clock = interval(Duration::from_millis(200));
+    let mut clock = interval(Duration::from_millis(1000));
     let mut rng = StdRng::from_entropy();
     loop {
         clock.tick().await;
@@ -256,7 +256,7 @@ async fn push_imu(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
             points: vec![],
             compression: true,
         };
-        for _ in 0..100 {
+        for _ in 0..40 {
             sequence %= u32::MAX;
             sequence += 1;
             gps_array.points.push(
@@ -289,7 +289,7 @@ async fn push_imu(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
 async fn push_heartbeat(tx: Sender<PayloadArray>, tenant: String, client_id: u32) {
     let mut sequence = 0;
     let mut total_time = 0.0;
-    let mut clock = interval(Duration::from_millis(140));
+    let mut clock = interval(Duration::from_millis(1000));
     loop {
         clock.tick().await;
         let start = Instant::now();
@@ -357,11 +357,10 @@ async fn single_device(client_id: u32, config: Arc<Config>, with_actions: bool) 
 
     if !with_actions {
         handle.spawn(push_gps(tx.clone(), tenant.clone(), client_id));
+        // handle.spawn(push_can(tx.clone(), tenant.clone(), client_id));
+        handle.spawn(push_imu(tx.clone(), tenant.clone(), client_id));
+        handle.spawn(push_heartbeat(tx.clone(), tenant.to_owned(), client_id));
     }
-
-    handle.spawn(push_can(tx.clone(), tenant.clone(), client_id));
-    handle.spawn(push_imu(tx.clone(), tenant.clone(), client_id));
-    handle.spawn(push_heartbeat(tx.clone(), tenant.to_owned(), client_id));
 
     while let Some(o) = handle.join_next().await {
         if let Err(e) = o {
